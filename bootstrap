@@ -1,107 +1,78 @@
 #!/usr/bin/env bash
 # data-layer/bootstrap — single entry point for the data-layer umbrella.
 #
-# Subcommands: postgres | redis | falkordb | adapters | all | verify | status | help
+# Subcommands:
+#   postgres    delegate to data-layer-postgres/lib/install.sh
+#   redis       delegate to data-layer-redis/lib/install.sh
+#   falkordb    delegate to data-layer-falkordb/lib/install.sh
+#   adapters    delegate to data-layer-adapters/bootstrap
+#   seed        apply framework-specific DB seed rows (post-schema)
+#   all         schema install + adapter seed for every submodule
+#   verify      run verify for every submodule
+#   status      run status for every submodule
+#   help        show this message
 #
-# Each delegated call shells out to the submodule's lib/install.sh with the
-# matching subcommand. Exit codes propagate: 0 if all delegated calls
-# succeeded, non-zero if any failed (or if a submodule lacks lib/install.sh
-# when one is required).
+# Order matters: schema (postgres install) must run before any adapter
+# seed, since seed rows reference postgres tables.
 
 set -euo pipefail
 
-# Resolve DATA_LAYER_BASE to this script's directory (no nested default+subshell
-# quoting — that pattern broke earlier when combined with double quotes).
 SOURCE="${BASH_SOURCE[0]:-$0}"
 SUBDIR="$(cd "$(dirname "$SOURCE")" && pwd)"
 DATA_LAYER_BASE="${DATA_LAYER_BASE:-$SUBDIR}"
 export DATA_LAYER_BASE
 
-# Submodule registry: <name>:<path>
 SUBMODULES=(
   "postgres:data-layer-postgres"
   "redis:data-layer-redis"
   "falkordb:data-layer-falkordb"
-  "adapters:data-layer-adapters"
 )
+ADAPTERS_ROOT="data-layer-adapters"
 
 usage() {
   cat <<USAGE
 Usage: $0 <subcommand> [args]
 
 Subcommands:
-  postgres    delegate to data-layer-postgres    submodule
-  redis       delegate to data-layer-redis       submodule
-  falkordb    delegate to data-layer-falkordb    submodule
-  adapters    delegate to data-layer-adapters    submodule
-  all         run install for every submodule
+  postgres    delegate to data-layer-postgres    schema service
+  redis       delegate to data-layer-redis       cache service
+  falkordb    delegate to data-layer-falkordb    graph service
+  adapters    delegate to data-layer-adapters    adapter collection
+  seed        apply framework-specific DB seed rows (requires schema installed)
+  all         schema install + adapter seed (skips adapters placeholder)
   verify      run verify for every submodule
-  status      run status for every submodule
+  status      run status for every submodule (tolerant of per-service failures)
   help        show this message
 
 Environment:
   DATA_LAYER_BASE   root of this repo (default: this script's directory)
-
-Each submodule ships lib/install.sh with: install | verify | status | reset.
-This dispatcher delegates the matching subcommand and propagates exit codes.
 USAGE
 }
 
-ensure_submodule_present() {
-  local name="$1" path="$2"
-  if [[ ! -d "$DATA_LAYER_BASE/$path" ]]; then
-    echo "[bootstrap FAIL] submodule directory missing: $path" >&2
-    return 2
-  fi
-}
-
-ensure_install_sh() {
-  local name="$1" path="$2"
-  if [[ ! -x "$DATA_LAYER_BASE/$path/lib/install.sh" ]]; then
-    echo "[bootstrap FAIL] $name submodule missing lib/install.sh (executable): $path/lib/install.sh" >&2
-    return 2
-  fi
-}
-
-# Run a single subcommand against a single submodule. Captures exit code without
-# aborting the script, so we can aggregate failures across 'all'.
 run_one() {
   local name="$1" path="$2" sub="$3"
   echo "[bootstrap] === $name: $sub ==="
-  ensure_submodule_present "$name" "$path" || return $?
-  ensure_install_sh      "$name" "$path" || return $?
+  [[ -d "$DATA_LAYER_BASE/$path" ]] || { echo "[bootstrap FAIL] submodule missing: $path" >&2; return 2; }
   ( cd "$DATA_LAYER_BASE/$path" && bash lib/install.sh "$sub" )
 }
 
-# Run a subcommand across every submodule. Aggregates exit codes: returns 0 only
-# if every delegated call returned 0.
 run_all() {
   local sub="$1" overall=0
   for entry in "${SUBMODULES[@]}"; do
-    name="${entry%%:*}"
-    path="${entry##*:}"
-    if ! run_one "$name" "$path" "$sub"; then
-      overall=$?
-    fi
+    name="${entry%%:*}"; path="${entry##*:}"
+    if ! run_one "$name" "$path" "$sub"; then overall=$?; fi
   done
   echo "[bootstrap] aggregate $sub overall_status=$overall"
   return $overall
 }
 
-# Special-case: adapters is currently a placeholder (no lib/install.sh yet).
-# We skip the 'all' calls for it but keep it dispatched on direct invocation.
-run_all_skipping_adapters() {
-  local sub="$1" overall=0
-  for entry in "${SUBMODULES[@]}"; do
-    name="${entry%%:*}"
-    path="${entry##*:}"
-    [[ "$name" == "adapters" ]] && continue
-    if ! run_one "$name" "$path" "$sub"; then
-      overall=$?
-    fi
-  done
-  echo "[bootstrap] aggregate $sub (skipping adapters placeholder) overall_status=$overall"
-  return $overall
+run_adapters() {
+  local sub="$1"
+  if [[ ! -x "$DATA_LAYER_BASE/$ADAPTERS_ROOT/bootstrap" ]]; then
+    echo "[bootstrap] no adapters bootstrap found at $ADAPTERS_ROOT/bootstrap" >&2
+    return 0
+  fi
+  ( cd "$DATA_LAYER_BASE/$ADAPTERS_ROOT" && bash bootstrap "$sub" )
 }
 
 case "${1:-help}" in
@@ -109,14 +80,23 @@ case "${1:-help}" in
   redis)      run_one redis      data-layer-redis      "${2:-install}" ;;
   falkordb)   run_one falkordb   data-layer-falkordb   "${2:-install}" ;;
   adapters)
-    # Direct call — requires lib/install.sh to exist.
-    run_one adapters data-layer-adapters "${2:-install}"
+    # Direct delegation. Subcommand defaults to install.
+    run_adapters "${2:-install}"
     ;;
-  all)        run_all_skipping_adapters install ;;
-  verify)     run_all_skipping_adapters verify ;;
+  seed)
+    # Schema first, then adapter seeds (FK dependency).
+    run_one postgres data-layer-postgres install || true
+    run_adapters seed
+    ;;
+  all)
+    run_all install
+    run_adapters seed
+    ;;
+  verify)     run_all verify ;;
   status)
     # status is informational — don't fail the umbrella just because one service is down.
-    run_all_skipping_adapters status || true
+    run_all status || true
+    run_adapters status || true
     ;;
   help|--help|-h|"") usage ;;
   *)
