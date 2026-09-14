@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+*.so
+
+# Environments
+.venv/
+venv/
+.env
+.a0proj/secrets.env
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Agent artifacts (memory index is per-project; not source)
+.a0proj/memory/
+.a0proj/knowledge/fragments/
+*.faiss
+*.faiss.sha256
+*.pkl
+
+# Submodule checkout artifacts (each submodule owns its own .git/)
+**/.git
+**/__pycache__
+
+# Local backups
+*.tar.gz
+*.bak

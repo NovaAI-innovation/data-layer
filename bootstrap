@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# data-layer/bootstrap — single entry point for the data-layer umbrella.
+#
+# Subcommands: postgres | redis | falkordb | adapters | all | verify | status | help
+#
+# Submodules ship their own `lib/install.sh` (install | verify | status | reset).
+# This dispatcher only orchestrates; it does NOT install or run service logic itself.
+#
+# Wiring lands in a future pass. For now this scaffold prints the intent and
+# validates subcommand routing.
+
+set -euo pipefail
+
+# Resolve DATA_LAYER_BASE to the absolute path of this script's directory.
+SOURCE="${BASH_SOURCE[0]:-$0}"
+DATA_LAYER_BASE="${DATA_LAYER_BASE:-$(cd "$(dirname "$SOURCE")" && pwd)}"
+export DATA_LAYER_BASE
+
+usage() {
+  cat <<USAGE
+Usage: $0 <subcommand> [args]
+
+Subcommands:
+  postgres    delegate to data-layer-postgres    submodule
+  redis       delegate to data-layer-redis       submodule
+  falkordb    delegate to data-layer-falkordb    submodule
+  adapters    delegate to data-layer-adapters    submodule
+  all         run install for every submodule
+  verify      run verify for every submodule
+  status      run status for every submodule
+  help        show this message
+
+Environment:
+  DATA_LAYER_BASE   root of this repo (default: this script's directory)
+USAGE
+}
+
+case "${1:-help}" in
+  postgres|redis|falkordb|adapters|all|verify|status)
+    echo "[data-layer bootstrap] subcommand=$1 — submodule wiring lands in a future pass."
+    echo "[data-layer bootstrap] DATA_LAYER_BASE=$DATA_LAYER_BASE"
+    exit 0
+    ;;
+  help|--help|-h|"")
+    usage
+    ;;
+  *)
+    echo "unknown subcommand: $1" >&2
+    usage >&2
+    exit 2
+    ;;
+esac

@@ -1,0 +1,19 @@
+[submodule "data-layer-postgres"]
+	path = data-layer-postgres
+	url = https://github.com/NovaAI-innovation/data-layer-postgres.git
+	branch = main
+
+[submodule "data-layer-redis"]
+	path = data-layer-redis
+	url = https://github.com/NovaAI-innovation/data-layer-redis.git
+	branch = main
+
+[submodule "data-layer-falkordb"]
+	path = data-layer-falkordb
+	url = https://github.com/NovaAI-innovation/data-layer-falkordb.git
+	branch = main
+
+[submodule "data-layer-adapters"]
+	path = data-layer-adapters
+	url = https://github.com/NovaAI-innovation/data-layer-adapters.git
+	branch = main

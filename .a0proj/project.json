@@ -1,0 +1,16 @@
+{
+  "title": "data-layer",
+  "description": "Umbrella project for the Agent Zero data-layer stack. Orchestrates the framework-agnostic postgres / redis / falkordb service submodules and the framework adapters collection. Single bootstrap entry point. Holds no service-level implementation itself — each submodule is a separate git repository wired in via shell-out.",
+  "instructions": "## data-layer — Umbrella Engineering Workspace\n\nACTIVE WORKSPACE: /a0/usr/projects/data-layer. This is the authoritative workspace for the data-layer umbrella: the single bootstrap dispatcher, the architecture docs, and the placeholder submodule directories whose implementations live in their own dedicated repositories.\n\n## Scope and ownership\n\nThis project owns the bootstrap dispatcher (install | verify | status | help), the architecture and bootstrap-flow docs, the smoke tests scaffold, the .gitmodules placeholder for the four submodule URLs, and the Agent Zero project metadata. It does NOT own the service-level implementation of any submodule — each submodule lives at its own git repository (data-layer-postgres, data-layer-redis, data-layer-falkordb, data-layer-adapters) and is wired in via shell-out from the bootstrap.\n\n## Isolation and security\n\nKeep plans, scripts, docs, and evidence inside this workspace. Never write real secrets to source-controlled files; use .env.example for placeholders. Do not modify files in /a0, other projects, global plugins, system services, or live databases unless the user explicitly requests the integration and the side effect is reported.\n\n## Required workflow\n\nBefore consequential changes, read README.md, docs/architecture.md, docs/bootstrap-flow.md, AGENTS.md, and .a0proj/instructions/project-isolation.md. State the intended outcome and affected paths before implementation. Keep deployment state separate from source. Submodule wiring is append-only: add a new wired submodule by editing .gitmodules and the bootstrap dispatcher, never modify an existing submodule's contract.\n\n## Runtime boundary\n\nUse /opt/venv-a0/bin/python for Agent Zero framework and plugin-hook checks. Use /opt/venv/bin/python for task or user-code checks. Do not treat one runtime as proof of the other.\n\n## Canonical references\n\nREADME.md — repository overview and submodule map. docs/architecture.md — submodule relationship diagram. docs/bootstrap-flow.md — what happens when bootstrap runs. docs/services/README.md — overview of each service placeholder. bootstrap — single dispatcher CLI. install.sh — convenience wrapper. .gitmodules — submodule URL registrations. .env.example — non-secret env template.",
+  "include_agents_md": true,
+  "color": "",
+  "git_url": "https://github.com/NovaAI-innovation/data-layer",
+  "file_structure": {
+    "enabled": true,
+    "max_depth": 5,
+    "max_files": 20,
+    "max_folders": 20,
+    "max_lines": 250,
+    "gitignore": ""
+  }
+}
