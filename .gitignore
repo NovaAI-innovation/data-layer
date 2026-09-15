@@ -51,3 +51,15 @@ knowledge_import.json
 # and instructions/ on first load — none of it is source-controlled.
 **/.a0proj/
 **/.a0proj/**
+
+
+# === Submodule content (each submodule has its own git; umbrella does not track them) ===
+# Each submodule ships its own .git/ AND is committed to its own remote.
+# The umbrella's role is orchestration; submodule content is not source
+# for this repo. Tracking submodule content here causes stale-overlap
+# problems when the submodules update their files. Use /a0/usr/projects/
+# symlinks or git-submodule-style wiring if umbrella needs to read them.
+data-layer-postgres/
+data-layer-redis/
+data-layer-falkordb/
+data-layer-adapters/
