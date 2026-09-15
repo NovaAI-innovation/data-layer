@@ -56,9 +56,9 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-postgres}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_dev_password}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required (set in .env, .a0proj/secrets.env, or export in shell)}
       POSTGRES_HOST_AUTH_METHOD: ${POSTGRES_HOST_AUTH_METHOD:-scram-sha-256}
-      DATA_LAYER_AGENT_ZERO_PASSWORD: ${DATA_LAYER_AGENT_ZERO_PASSWORD:-agent_zero_dev_password}
+      DATA_LAYER_AGENT_ZERO_PASSWORD: ${DATA_LAYER_AGENT_ZERO_PASSWORD:?DATA_LAYER_AGENT_ZERO_PASSWORD is required (set in .env, .a0proj/secrets.env, or export in shell)}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
@@ -126,8 +126,8 @@ services:
     environment:
       ADAPTER_ROLE: hook
       # Defaults assume compose-provided service hostnames.
-      DATA_LAYER_POSTGRES_DSN: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_dev_password}@postgres:5432/${POSTGRES_DB:-postgres}
-      DATA_LAYER_AGENT_ZERO_DSN: postgresql://agent_zero:${DATA_LAYER_AGENT_ZERO_PASSWORD:-agent_zero_dev_password}@postgres:5432/postgres
+      DATA_LAYER_POSTGRES_DSN: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-postgres}
+      DATA_LAYER_AGENT_ZERO_DSN: postgresql://agent_zero:${DATA_LAYER_AGENT_ZERO_PASSWORD:?DATA_LAYER_AGENT_ZERO_PASSWORD is required}@postgres:5432/postgres
       DATA_LAYER_REDIS_URL: redis://redis:6379/0
       DATA_LAYER_REDIS_HOST: redis
       DATA_LAYER_REDIS_PORT: "6379"
