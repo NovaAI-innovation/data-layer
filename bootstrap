@@ -85,6 +85,14 @@ case "${1:-help}" in
     ;;
   seed)
     # Schema first, then adapter seeds (FK dependency).
+    #
+    # Postgres migrations are append-only under
+    # data-layer-postgres/migrations/ and the applier discovers them
+    # automatically in lexicographic order. New migrations from the
+    # data-layer audit-grade promotion (0004 session_presence,
+    # 0005 tool_executions_lifecycle, 0006 idempotency_keys — see
+    # data-layer-postgres/docs/decisions/0002-...md) are picked up
+    # by `install` without any change to this dispatcher.
     run_one postgres data-layer-postgres install || true
     run_adapters seed
     ;;

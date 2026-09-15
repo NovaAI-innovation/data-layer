@@ -1,0 +1,152 @@
+# data-layer/docker-compose.yml
+#
+# Single compose file for the entire data-layer deployment.
+# Brings up four services in dependency order:
+#   postgres  → schema service (pgvector/pgvector:pg16)
+#   redis     → bounded cache + pub/sub bus
+#   falkordb  → graph service (RESP on 6379, bolt/UI on 7687)
+#   adapters  → universal MCP server + long-lived redis_publish_hook sidecar
+#
+# Usage:
+#   docker compose up -d --build       # build + start
+#   docker compose ps                   # status
+#   docker compose logs -f adapters     # tail the publish hook
+#   docker compose down                 # stop (volumes preserved)
+#   docker compose down -v              # stop + delete volumes (DROPS DATA)
+#
+# Port mapping notes (multi-host reachability):
+# All ports are published on all interfaces (0.0.0.0) so other hosts on
+# the network — e.g. other Tailscale nodes — can reach the services.
+# The previous "127.0.0.1:NNNN:NNNN" bindings made the services reachable
+# from the Docker host only.
+#
+# - postgres: 5432:5432           scram-sha-256 auth, agent_zero role
+#                                  has tight per-table grants (see
+#                                  zzz_create_agent_zero.sh). Passwords
+#                                  must be rotated from the defaults.
+# - redis:    6380:6379           host 6380 to avoid colliding with
+#                                  falkordb's 6379 below
+# - falkordb: 6379:6379 / 7687:7687 / 3000:3000
+#             Will collide with any standalone `falkordb-test-sandbox`
+#             container on the same host. Stop that container first
+#             OR change this mapping to e.g. 16379:6379.
+# - adapters: no host port (publish hook is a pure sidecar; MCP server
+#             runs on stdio via `docker compose run --rm adapters mcp`)
+#
+# Security notes for multi-host exposure:
+# - Postgres uses scram-sha-256, NOT trust. The postgres user and
+#   agent_zero user both have passwords; never commit real passwords —
+#   use the .env file (not committed).
+# - Redis is currently unpassworded. Anyone who can reach the host's
+#   6380 can read/write every key. Add `requirepass` in redis.conf
+#   before any non-test deployment.
+# - falkordb RESP (6379) is unauthenticated by default. Add AUTH if
+#   the network is shared.
+# - For multi-host over public networks, terminate TLS at a reverse
+#   proxy in front of each service or use the docker-compose secrets
+#   + TLS variants of each image. Out of scope for this file.
+
+name: data-layer
+
+services:
+  postgres:
+    build: ./data-layer-postgres
+    image: data-layer-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_dev_password}
+      POSTGRES_HOST_AUTH_METHOD: ${POSTGRES_HOST_AUTH_METHOD:-scram-sha-256}
+      DATA_LAYER_AGENT_ZERO_PASSWORD: ${DATA_LAYER_AGENT_ZERO_PASSWORD:-agent_zero_dev_password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - data_layer
+
+  redis:
+    build: ./data-layer-redis
+    image: data-layer-redis
+    restart: unless-stopped
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "6379", "PING"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - data_layer
+
+  falkordb:
+    build: ./data-layer-falkordb
+    image: data-layer-falkordb
+    restart: unless-stopped
+    environment:
+      FALKORDB_PORT: "6379"
+      FALKORDB_DATA_DIR: /data
+      DATA_LAYER_FALKORDB_DATABASE: ${DATA_LAYER_FALKORDB_DATABASE:-default}
+    volumes:
+      - falkordb_data:/data
+    ports:
+      - "6379:6379"   # RESP — collides with falkordb-test-sandbox
+      - "7687:7687"   # embedded Next.js web UI
+      - "3000:3000"
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "python3 -c \"import socket; s=socket.socket(); s.settimeout(2); s.connect(('127.0.0.1', 6379)); s.sendall(b'PING\\\\r\\\\n'); print(s.recv(100).decode())\" | grep -q PONG"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - data_layer
+
+  adapters:
+    build: ./data-layer-adapters
+    image: data-layer-adapters
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      falkordb:
+        condition: service_healthy
+    environment:
+      ADAPTER_ROLE: hook
+      # Defaults assume compose-provided service hostnames.
+      DATA_LAYER_POSTGRES_DSN: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_dev_password}@postgres:5432/${POSTGRES_DB:-postgres}
+      DATA_LAYER_AGENT_ZERO_DSN: postgresql://agent_zero:${DATA_LAYER_AGENT_ZERO_PASSWORD:-agent_zero_dev_password}@postgres:5432/postgres
+      DATA_LAYER_REDIS_URL: redis://redis:6379/0
+      DATA_LAYER_REDIS_HOST: redis
+      DATA_LAYER_REDIS_PORT: "6379"
+      DATA_LAYER_REDIS_PREFIX: "${DATA_LAYER_REDIS_PREFIX:-dl:}"
+      DATA_LAYER_REDIS_TTL: "${DATA_LAYER_REDIS_TTL:-300}"
+      DATA_LAYER_FALKORDB_HOST: falkordb
+      DATA_LAYER_FALKORDB_PORT: "6379"
+      DATA_LAYER_FALKORDB_DATABASE: ${DATA_LAYER_FALKORDB_DATABASE:-default}
+      DATA_LAYER_PUBSUB_PREFIX: "dl:pubsub:"
+      DATA_LAYER_DW_SESSION_PRESENCE: "${DATA_LAYER_DW_SESSION_PRESENCE:-true}"
+      DATA_LAYER_HOOK_PROJECTIONS: ${DATA_LAYER_HOOK_PROJECTIONS:-session.heartbeat}
+    networks:
+      - data_layer
+
+volumes:
+  postgres_data:
+  redis_data:
+  falkordb_data:
+
+networks:
+  data_layer:
+    driver: bridge
