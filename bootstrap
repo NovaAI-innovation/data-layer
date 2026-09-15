@@ -6,6 +6,7 @@
 #   postgres    delegate to data-layer-postgres/lib/install.sh
 #   redis       delegate to data-layer-redis/lib/install.sh
 #   falkordb    delegate to data-layer-falkordb/lib/install.sh
+#   qdrant      delegate to data-layer-qdrant/lib/install.sh
 #   adapters    delegate to data-layer-adapters/bootstrap
 #   seed        apply framework-specific DB seed rows (post-schema)
 #   all         wait for healthchecks + schema install + adapter seed
@@ -28,6 +29,7 @@ SUBMODULES=(
   "postgres:data-layer-postgres"
   "redis:data-layer-redis"
   "falkordb:data-layer-falkordb"
+  "qdrant:data-layer-qdrant"
 )
 ADAPTERS_ROOT="data-layer-adapters"
 
@@ -40,6 +42,7 @@ Subcommands:
   postgres    delegate to data-layer-postgres    schema service
   redis       delegate to data-layer-redis       cache service
   falkordb    delegate to data-layer-falkordb    graph service
+  qdrant      delegate to data-layer-qdrant      vector / RAG layer
   adapters    delegate to data-layer-adapters    adapter collection
   seed        apply framework-specific DB seed rows (requires schema installed)
   all         wait for healthchecks + schema install + adapter seed
@@ -115,6 +118,7 @@ case "${1:-help}" in
   postgres)   run_one postgres   data-layer-postgres   "${2:-install}" ;;
   redis)      run_one redis      data-layer-redis      "${2:-install}" ;;
   falkordb)   run_one falkordb   data-layer-falkordb   "${2:-install}" ;;
+  qdrant)     run_one qdrant     data-layer-qdrant     "${2:-install}" ;;
   adapters)
     run_adapters "${2:-install}"
     ;;

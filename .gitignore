@@ -39,3 +39,12 @@ knowledge_import.json
 # Local backups
 *.tar.gz
 *.bak
+
+# Local working copy of data-layer-qdrant (lives in this umbrella's
+# tree as a development convenience; the canonical copy is the
+# sibling repo `github.com/NovaAI-innovation/data-layer-qdrant`).
+# Fresh clones get the canonical copy via `git submodule update --init`
+# (see .gitmodules). The local working copy is gitignored here so the
+# umbrella commit does not accidentally embed 25 files + its own .git/.
+/data-layer-qdrant/
+**/data-layer-qdrant/

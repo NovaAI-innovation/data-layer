@@ -17,3 +17,8 @@
 	path = data-layer-adapters
 	url = https://github.com/NovaAI-innovation/data-layer-adapters.git
 	branch = main
+
+[submodule "data-layer-qdrant"]
+	path = data-layer-qdrant
+	url = https://github.com/NovaAI-innovation/data-layer-qdrant.git
+	branch = main

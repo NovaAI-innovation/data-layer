@@ -1,8 +1,9 @@
 # data-layer
 
 Umbrella repository for the data-layer stack: a framework-agnostic
-postgres schema, redis cache, FalkorDB graph, and multi-framework
-adapter collection. Brings up all four services with a single command.
+postgres schema, redis cache, FalkorDB graph, Qdrant vector/RAG layer,
+and multi-framework adapter collection. Brings up all five services
+with a single command.
 
 ## Quick start (Linux / macOS)
 
@@ -16,9 +17,9 @@ The installer:
 1. Checks host dependencies (docker, git, python3, openssl).
 2. Populates git submodules.
 3. Generates strong random passwords and writes `.env`.
-4. Builds and starts all four services via `docker compose up -d --build`.
+4. Builds and starts all five services via `docker compose up -d --build`.
 5. Waits for healthchecks.
-6. Applies database migrations and adapter seeds (`bootstrap all`).
+6. Applies database migrations, qdrant collections + seed, and adapter seeds (`bootstrap all`).
 7. Verifies all services are reachable (`bootstrap verify`).
 8. Prints credentials and next-step commands.
 
@@ -58,6 +59,7 @@ docs/
 data-layer-postgres/                → github.com/NovaAI-innovation/data-layer-postgres
 data-layer-redis/                   → github.com/NovaAI-innovation/data-layer-redis
 data-layer-falkordb/                → github.com/NovaAI-innovation/data-layer-falkordb
+data-layer-qdrant/                  → github.com/NovaAI-innovation/data-layer-qdrant
 data-layer-adapters/                → github.com/NovaAI-innovation/data-layer-adapters
 ```
 
@@ -69,10 +71,11 @@ umbrella hosts them as siblings on disk and orchestrates via the
 
 | Submodule | Owns | Dockerfile |
 |---|---|---|
-| `data-layer-postgres` | pgvector schema + migrations + agent_zero role | ✅ |
-| `data-layer-redis` | Hardened redis config + tenant-prefix isolation | ✅ |
-| `data-layer-falkordb` | FalkorDB server + Cypher graph schema | ✅ |
-| `data-layer-adapters` | Framework adapters (A0, Hermes) + MCP server + publish hook | ✅ |
+| `data-layer-postgres` | pgvector schema + migrations + agent_zero role (immutable record; SOT) | ✅ |
+| `data-layer-redis` | Hardened redis config + tenant-prefix isolation (ephemeral cache) | ✅ |
+| `data-layer-falkordb` | FalkorDB server + Cypher graph schema (graph edges) | ✅ |
+| `data-layer-qdrant` | Qdrant vector index + 2-collection SOT (source_authority + emails) + bootstrap-gated seed pipeline | ✅ |
+| `data-layer-adapters` | Framework adapters (A0, Hermes) + **universal MCP server (21 tools)** + publish hook | ✅ |
 
 ## Services (docker compose)
 
@@ -81,18 +84,20 @@ umbrella hosts them as siblings on disk and orchestrates via the
 | postgres | 5432 | pgvector/pgvector:pg16, scram-sha-256 auth |
 | redis | 6380 | redis:7.2-alpine, AOF, allkeys-lru |
 | falkordb | 6379 (RESP), 7687 (Bolt), 3000 (UI) | FalkorDB latest |
-| adapters | (sidecar) | hook mode by default; MCP via `docker compose run` |
+| **qdrant** | **6333 (HTTP), 6334 (gRPC)** | **qdrant/qdrant:v1.19.1; vector / RAG layer; 2 collections (mpg_source_authority_documents, mpg_emails); writes gated by `MCP_INSTALL_MODE=1`** |
+| adapters | (sidecar) | hook mode by default; **universal MCP server (21 tools: 14 Postgres + 7 Qdrant)** via `docker compose run` |
 
 ## Bootstrap commands
 
 ```bash
 ./bootstrap init        # populate git submodules (first clone)
-./bootstrap all         # apply migrations + adapter seeds
+./bootstrap all         # apply migrations + qdrant collections/seed + adapter seeds
 ./bootstrap verify      # confirm all services are reachable
 ./bootstrap status      # show per-service state (non-fatal)
 ./bootstrap postgres    # postgres migrations only
 ./bootstrap redis       # redis install only
 ./bootstrap falkordb    # falkordb migrations only
+./bootstrap qdrant      # qdrant server + collections + seed (gated by MCP_INSTALL_MODE)
 ./bootstrap adapters    # adapter install only
 ./bootstrap seed        # schema + adapter seeds
 ```
@@ -123,5 +128,5 @@ docker compose down -v         # stop + DELETE ALL DATA
 
 ## Status
 
-All four submodules are wired and operational. The `bootstrap`
+All five submodules are wired and operational. The `bootstrap`
 dispatcher applies migrations idempotently; re-runs are no-ops.
