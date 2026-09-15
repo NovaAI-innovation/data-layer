@@ -8,9 +8,10 @@
 #   falkordb    delegate to data-layer-falkordb/lib/install.sh
 #   adapters    delegate to data-layer-adapters/bootstrap
 #   seed        apply framework-specific DB seed rows (post-schema)
-#   all         schema install + adapter seed for every submodule
+#   all         wait for healthchecks + schema install + adapter seed
 #   verify      run verify for every submodule
-#   status      run status for every submodule
+#   status      run status for every submodule (tolerant of per-service failures)
+#   wait        block until all compose services are healthy (timeout 120s)
 #   help        show this message
 #
 # Order matters: schema (postgres install) must run before any adapter
@@ -41,9 +42,10 @@ Subcommands:
   falkordb    delegate to data-layer-falkordb    graph service
   adapters    delegate to data-layer-adapters    adapter collection
   seed        apply framework-specific DB seed rows (requires schema installed)
-  all         schema install + adapter seed
+  all         wait for healthchecks + schema install + adapter seed
   verify      run verify for every submodule
   status      run status for every submodule (tolerant of per-service failures)
+  wait        block until all compose services are healthy (timeout 120s)
   help        show this message
 
 Environment:
@@ -77,42 +79,60 @@ run_adapters() {
   ( cd "$DATA_LAYER_BASE/$ADAPTERS_ROOT" && bash bootstrap "$sub" )
 }
 
+# Wait until all compose-managed services report healthy (or timeout).
+# Uses docker compose ps. Tolerant of missing docker.
+wait_healthy() {
+  local timeout="${1:-120}"
+  local deadline=$((SECONDS + timeout))
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "[bootstrap] docker not available; skipping healthcheck wait"
+    return 0
+  fi
+  while (( SECONDS < deadline )); do
+    local unheal
+    if command -v jq >/dev/null 2>&1; then
+      unheal=$(cd "$DATA_LAYER_BASE" && docker compose ps --format json 2>/dev/null \
+        | jq -r 'select((.Health // "") != "healthy") | .Name' 2>/dev/null | wc -l)
+    else
+      unheal=$(cd "$DATA_LAYER_BASE" && docker compose ps --format '{{.Name}} {{.Health}}' 2>/dev/null \
+        | awk '$2 != "healthy" {print $1}' | wc -l)
+    fi
+    if [[ "$unheal" == "0" ]]; then
+      echo "[bootstrap] all services healthy"
+      return 0
+    fi
+    sleep 2
+  done
+  echo "[bootstrap FAIL] services did not become healthy within ${timeout}s" >&2
+  return 1
+}
+
 case "${1:-help}" in
   init)
     echo "[bootstrap] initializing git submodules..."
     git -C "$DATA_LAYER_BASE" submodule update --init --recursive
-    echo "[bootstrap] submodules ready"
     ;;
   postgres)   run_one postgres   data-layer-postgres   "${2:-install}" ;;
   redis)      run_one redis      data-layer-redis      "${2:-install}" ;;
   falkordb)   run_one falkordb   data-layer-falkordb   "${2:-install}" ;;
   adapters)
-    # Direct delegation. Subcommand defaults to install.
     run_adapters "${2:-install}"
     ;;
   seed)
-    # Schema first, then adapter seeds (FK dependency).
-    #
-    # Postgres migrations are append-only under
-    # data-layer-postgres/migrations/ and the applier discovers them
-    # automatically in lexicographic order. New migrations from the
-    # data-layer audit-grade promotion (0004 session_presence,
-    # 0005 tool_executions_lifecycle, 0006 idempotency_keys — see
-    # data-layer-postgres/docs/decisions/0002-...md) are picked up
-    # by `install` without any change to this dispatcher.
     run_one postgres data-layer-postgres install || true
     run_adapters seed
     ;;
   all)
+    wait_healthy "${2:-120}"
     run_all install
     run_adapters seed
     ;;
   verify)     run_all verify ;;
   status)
-    # status is informational — don't fail the umbrella just because one service is down.
     run_all status || true
     run_adapters status || true
     ;;
+  wait)       wait_healthy "${2:-120}" ;;
   help|--help|-h|"") usage ;;
   *)
     echo "unknown subcommand: $1" >&2
