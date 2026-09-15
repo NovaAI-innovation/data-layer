@@ -19,47 +19,23 @@ venv/
 .DS_Store
 
 # Agent artifacts (memory index is per-project; not source)
-.a0proj/memory/
-.a0proj/knowledge/fragments/
-*.faiss
-*.faiss.sha256
-*.pkl
-
-# Submodule checkout artifacts (each submodule owns its own .git/)
-**/.git
-**/__pycache__
-
-# Local backups
-*.tar.gz
-*.bak
-# === FAISS memory system (per-developer-agent runtime state, not source) ===
-# All instances of the FAISS memory artifacts belong to the agent that
-# built them, not to the data-layer stack. Exclude from every repo.
-.a0proj/memory/
-.a0proj/knowledge/
-.a0proj/skills/
 *.faiss
 *.faiss.sha256
 *.pkl
 embedding.json
 knowledge_import.json
 
-# === Recursive .a0proj gitignore ===
-# All .a0proj directories in this repo (and their contents) are
-# per-developer-agent runtime state managed by the Agent Zero framework.
-# The framework regenerates project.json, mcp_servers.json, variables.env,
-# and instructions/ on first load — none of it is source-controlled.
+# Recursive .a0proj — runtime metadata regenerates on first load;
+# not source-controlled (except instructions/ which is committed).
 **/.a0proj/
 **/.a0proj/**
 
+# Submodule .git internals (each submodule owns its own .git/).
+# The working trees ARE tracked via git submodule pointers;
+# do NOT ignore the submodule directories themselves.
+**/.git
+**/__pycache__
 
-# === Submodule content (each submodule has its own git; umbrella does not track them) ===
-# Each submodule ships its own .git/ AND is committed to its own remote.
-# The umbrella's role is orchestration; submodule content is not source
-# for this repo. Tracking submodule content here causes stale-overlap
-# problems when the submodules update their files. Use /a0/usr/projects/
-# symlinks or git-submodule-style wiring if umbrella needs to read them.
-data-layer-postgres/
-data-layer-redis/
-data-layer-falkordb/
-data-layer-adapters/
+# Local backups
+*.tar.gz
+*.bak

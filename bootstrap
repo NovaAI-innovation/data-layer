@@ -2,6 +2,7 @@
 # data-layer/bootstrap — single entry point for the data-layer umbrella.
 #
 # Subcommands:
+#   init        ensure git submodules are populated (--init --recursive)
 #   postgres    delegate to data-layer-postgres/lib/install.sh
 #   redis       delegate to data-layer-redis/lib/install.sh
 #   falkordb    delegate to data-layer-falkordb/lib/install.sh
@@ -34,12 +35,13 @@ usage() {
 Usage: $0 <subcommand> [args]
 
 Subcommands:
+  init        ensure git submodules are populated (--init --recursive)
   postgres    delegate to data-layer-postgres    schema service
   redis       delegate to data-layer-redis       cache service
   falkordb    delegate to data-layer-falkordb    graph service
   adapters    delegate to data-layer-adapters    adapter collection
   seed        apply framework-specific DB seed rows (requires schema installed)
-  all         schema install + adapter seed (skips adapters placeholder)
+  all         schema install + adapter seed
   verify      run verify for every submodule
   status      run status for every submodule (tolerant of per-service failures)
   help        show this message
@@ -76,6 +78,11 @@ run_adapters() {
 }
 
 case "${1:-help}" in
+  init)
+    echo "[bootstrap] initializing git submodules..."
+    git -C "$DATA_LAYER_BASE" submodule update --init --recursive
+    echo "[bootstrap] submodules ready"
+    ;;
   postgres)   run_one postgres   data-layer-postgres   "${2:-install}" ;;
   redis)      run_one redis      data-layer-redis      "${2:-install}" ;;
   falkordb)   run_one falkordb   data-layer-falkordb   "${2:-install}" ;;
