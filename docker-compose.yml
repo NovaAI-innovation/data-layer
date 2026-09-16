@@ -177,6 +177,43 @@ services:
     networks:
       - data_layer
 
+  agent-zero:
+    # One-shot bootstrap service for the Agent Zero instance.
+    # Runs `agent-zero/bootstrap install` (deps + plugin) and `seed`
+    # (applies seeds/0001_default_agent.sql + 0002_migrate_local_id.sql),
+    # then idles so the container can be inspected. exit code 0 = success.
+    # The actual A0 web UI runs OUTSIDE this compose stack (it's the
+    # agent you're talking to right now); this service only wires the
+    # database row + plugin that A0 reads.
+    build: ./data-layer-adapters
+    image: data-layer-adapters
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      falkordb:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      adapters:
+        condition: service_started
+    environment:
+      ADAPTER_ROLE: agent-zero
+      DATA_LAYER_LOCAL_CONTAINER_NAME: agent-zero
+      DATA_LAYER_RUN_MIGRATE: "${DATA_LAYER_RUN_MIGRATE:-1}"
+      DATA_LAYER_POSTGRES_DSN: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-postgres}
+      DATA_LAYER_AGENT_ZERO_DSN: postgresql://agent_zero:${DATA_LAYER_AGENT_ZERO_PASSWORD:?DATA_LAYER_AGENT_ZERO_PASSWORD is required}@postgres:5432/postgres
+      DATA_LAYER_REDIS_URL: redis://redis:6379/0
+      DATA_LAYER_REDIS_HOST: redis
+      DATA_LAYER_REDIS_PORT: "6379"
+      DATA_LAYER_FALKORDB_HOST: falkordb
+      DATA_LAYER_FALKORDB_PORT: "6379"
+      DATA_LAYER_FALKORDB_DATABASE: ${DATA_LAYER_FALKORDB_DATABASE:-default}
+    networks:
+      - data_layer
+
 volumes:
   postgres_data:
   redis_data:

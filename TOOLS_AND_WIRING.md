@@ -133,3 +133,50 @@ Tag + ship workflow (for after Wire-up E is unblocked):
 - `LICENSE` + submodule `LICENSE` files — license posture
 - `NOTICE` — third-party attributions
 - `CONTRIBUTING.md` — contributor license + DCO process
+
+## agent-zero role (one-shot bootstrap)
+
+The `data-layer-adapters` image supports a fourth role dispatched by `ADAPTER_ROLE=agent-zero`:
+
+```
+  hook         (default) — long-lived publish hook sidecar
+  mcp                    — MCP server on stdio
+  smoke                  — dual_write smoke test, one-shot
+  agent-zero             — one-shot: install + seed, then idle
+```
+
+`docker-compose.yml` declares it as the 6th service:
+
+```yaml
+  agent-zero:
+    build: ./data-layer-adapters
+    restart: "no"
+    depends_on:
+      postgres:  { condition: service_healthy }
+      redis:     { condition: service_healthy }
+      falkordb:  { condition: service_healthy }
+      qdrant:    { condition: service_healthy }
+      adapters:  { condition: service_started }
+    environment:
+      ADAPTER_ROLE: agent-zero
+      DATA_LAYER_LOCAL_CONTAINER_NAME: agent-zero
+      DATA_LAYER_RUN_MIGRATE: "${DATA_LAYER_RUN_MIGRATE:-1}"
+      DATA_LAYER_POSTGRES_DSN: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-postgres}
+      DATA_LAYER_AGENT_ZERO_DSN: postgresql://agent_zero:${DATA_LAYER_AGENT_ZERO_PASSWORD}@postgres:5432/postgres
+      DATA_LAYER_REDIS_URL: redis://redis:6379/0
+      DATA_LAYER_FALKORDB_HOST: falkordb
+      DATA_LAYER_FALKORDB_DATABASE: ${DATA_LAYER_FALKORDB_DATABASE:-default}
+    networks: [data_layer]
+```
+
+What it does on `docker compose up`:
+1. Waits for postgres, redis, falkordb, qdrant to be healthy (compose healthcheck gates).
+2. Runs `bash /app/agent-zero/bootstrap install` → `lib/deps.sh` (psycopg + mcp into the framework venv) + `lib/plugin.sh` (copies `plugin/*` into the A0 plugins dir, preserving operator `config.json`).
+3. Runs `bash /app/agent-zero/bootstrap seed` → applies `seeds/0001_default_agent.sql` (idempotent — registers this A0 instance) + optionally `seeds/0002_migrate_local_id.sql` (gated by `DATA_LAYER_RUN_MIGRATE`).
+4. Idles (`tail -f /dev/null`) so the container can be inspected: `docker compose exec agent-zero bash` then `psql $DATA_LAYER_POSTGRES_DSN -c 'select * from agents;'`.
+
+The A0 web UI itself (port 50001) runs OUTSIDE the compose stack — `python3 /a0/run_ui.py` in the dev container, or `agent0ai/agent-zero` on port 50001 externally / 80 internally in production. The compose service only wires the database row + plugin; it does not host the HTTP server.
+
+Exit codes:
+- `0` — install + seed both succeeded; service is "exited (0)" in `docker compose ps`.
+- non-zero — `bootstrap install` or `bootstrap seed` failed; compose marks the service "failed" and halts the stack on first failure (no restart, per `restart: "no"`).
