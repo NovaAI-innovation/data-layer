@@ -387,3 +387,115 @@ Full task list is in the `todo_tool` project `data-layer-qdrant-build`.
 - **`data-layer-qdrant` is local-only until `gh repo create` runs.**
   Submodule gitlink in the umbrella will stay un-resolved until
   Phase F completes.
+
+## 10. Native wire-up (single-host, no Docker)
+
+This section is the canonical runbook for bringing up the full
+data-layer stack natively on a single host when Docker is not
+available (e.g. the Agent Zero container or a CI runner). It was
+exercised on 2026-09-15 against Kali 24.04 inside the Agent Zero
+container.
+
+### 10.1 Apt install (postgres + redis)
+
+```bash
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \n    postgresql postgresql-contrib postgresql-18-pgvector redis-server jq
+# If dpkg was interrupted mid-install (likely under container init):
+DEBIAN_FRONTEND=noninteractive dpkg --configure -a
+```
+
+### 10.2 Start postgres + apply migrations
+
+```bash
+# Start the cluster on the default :5432
+pg_ctlcluster $(pg_lsclusters -h | tail -1 | awk '{print $1 "/" $2}') start
+# Default pg_hba.conf uses scram-sha-256 on 127.0.0.1/::1. For the
+# DSN-with-password wire-up, swap host auth to md5 for postgres user:
+sed -i 's/^host    all             all             127.0.0.1\/32            scram-sha-256/host    all             all             127.0.0.1\/32            md5/' /etc/postgresql/*/main/pg_hba.conf
+sed -i 's/^host    all             all             ::1\/128                 scram-sha-256/host    all             all             ::1\/128                 md5/' /etc/postgresql/*/main/pg_hba.conf
+pg_ctlcluster $(pg_lsclusters -h | tail -1 | awk '{print $1 "/" $2}') reload
+# Set postgres user password to match the DSN. Use a SQL file via
+# `su - postgres -c "psql -f"` to avoid bash nested-quote issues:
+cat > /tmp/alter_pg.sql <<'SQLEOF'
+ALTER USER postgres WITH PASSWORD 'postgres_local_wireup';
+ALTER USER postgres WITH SUPERUSER;
+SQLEOF
+su - postgres -c 'psql -f /tmp/alter_pg.sql'
+# Apply the 7 migrations (uses DATA_LAYER_POSTGRES_DSN from .env):
+cd /a0/usr/projects/data-layer/data-layer-postgres
+bash lib/install.sh install
+```
+
+### 10.3 Start redis
+
+```bash
+mkdir -p /var/lib/redis /var/log/redis
+nohup redis-server --daemonize yes --bind 127.0.0.1 --port 6379 \n    --dir /var/lib/redis --logfile /var/log/redis/redis.log
+redis-cli ping   # expect: PONG
+cd /a0/usr/projects/data-layer/data-layer-redis && bash lib/install.sh verify
+```
+
+### 10.4 Native qdrant
+
+Already covered earlier in this HANDOFF — `apt` doesn't ship qdrant;
+the working path is the GitHub release tarball at
+`https://github.com/qdrant/qdrant/releases/download/v1.19.1/qdrant-x86_64-unknown-linux-gnu.tar.gz`,
+unpacked into `/usr/local/bin/qdrant`, config at
+`/opt/qdrant/config/production.yaml`, storage at `/opt/qdrant/storage`.
+
+### 10.5 Native falkordb
+
+The FalkorDB project ships Linux x86_64 tarballs only on older
+releases; recent releases (v3.x / v4.x) ship Docker images only.
+On a host without Docker the wire-up path is:
+
+1. `apt install -y redis-server` (already done in 10.3) and either
+   a separate falkordb RESP listener on a non-conflicting port, or
+   co-locate falkordb on RESP :6389 and Bolt via falkordb's
+   single-port dual-protocol mode (--port 6389 covers both)
+2. Pull the binary out of the official Docker image layers — either
+   by booting the image once via Docker on a host that has it
+   (`docker save falkordb/falkordb:latest | tar -xf -`), or by
+   downloading the image manifest via curl and concatenating the
+   layers into a single tarball.
+3. Start: `nohup /usr/local/bin/falkordb --port 6389 --data-dir /var/lib/falkordb`
+4. Apply migrations:
+   `DATA_LAYER_FALKORDB_URL=redis://127.0.0.1:6389 bash data-layer-falkordb/lib/install.sh install`
+5. Verify: `redis-cli -p 6389 GRAPH.QUERY data_layer "MATCH (n) RETURN count(n)"`
+
+NOTE: the URL pattern in `lib/falkordb.sh` (`v1.2.0/falkordb-linux-x86_64.tar.gz`)
+is outdated and returns HTTP 404. The asset name + URL pattern
+has changed across releases. Override via
+`DATA_LAYER_FALKORDB_TARBALL_URL` with a URL confirmed via
+`api.github.com/repos/FalkorDB/FalkorDB/releases`.
+
+### 10.6 Canonical MCP end-to-end check
+
+With all 4 backends wired natively:
+
+```bash
+set -a; source /a0/usr/projects/data-layer/.env; set +a
+DATA_LAYER_TEST_DSN="$DATA_LAYER_POSTGRES_DSN" \n    /opt/venv/bin/python -m unittest mcp.tests.test_server -v
+# Expect: 31+ tests, all pass, zero skipped. Previously the 4
+# DbTests + 1 SubprocessSmokeTests skipped cleanly because the
+# DATA_LAYER_TEST_DSN pointed at an unreachable host. Once set to
+# the local wire-up postgres, those tests now exercise the live schema.
+```
+
+### 10.7 Known gaps after native wire-up
+
+- FalkorDB binary install: blocked by 404 on the v1.2.0 tarball.
+  The remaining path is image-layer extraction (see 10.5 step 2).
+- `data-layer-postgres/lib/install.sh` apply_agent_zero_grants step
+  uses psycopg parameter binding for `CREATE ROLE ... PASSWORD $1`
+  which is invalid SQL. Workaround applied via SQL heredoc in 10.2.
+  Long-term fix: use `psycopg.sql.SQL(...) % sql.Literal(password)`
+  for safe password inline.
+- Qdrant semantic search returns random nearest neighbors because
+  the seed uses placeholder `[0.0] * 768` vectors. Wire the
+  `sentence-transformers/all-mpnet-base-v2` embedder via
+  `data-layer-qdrant/lib/embed.py` (scaffolded; ADR-required for
+  full integration).
+- Email pipeline: postgres 0007_emails.sql is applied but the
+  `data-layer-qdrant/lib/mail_replay.py` mail-source driver is
+  scaffolded only. Wire a live SMTP listener for production use.
