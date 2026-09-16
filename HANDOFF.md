@@ -445,29 +445,44 @@ unpacked into `/usr/local/bin/qdrant`, config at
 
 ### 10.5 Native falkordb
 
-The FalkorDB project ships Linux x86_64 tarballs only on older
-releases; recent releases (v3.x / v4.x) ship Docker images only.
-On a host without Docker the wire-up path is:
+FalkorDB is NOT a standalone binary — it is a Redis loadable
+module. The official image builds it from source and packages the
+artifact as `falkordb.so` (~50 MB) under `/var/lib/falkordb/bin/`.
+Recent FalkorDB releases ship Docker images only (the
+`https://github.com/FalkorDB/FalkorDB/releases/download/v1.2.0/falkordb-linux-x86_64.tar.gz`
+URL in `lib/falkordb.sh` returns HTTP 404 — the URL pattern is
+stale and the asset is no longer published).
 
-1. `apt install -y redis-server` (already done in 10.3) and either
-   a separate falkordb RESP listener on a non-conflicting port, or
-   co-locate falkordb on RESP :6389 and Bolt via falkordb's
-   single-port dual-protocol mode (--port 6389 covers both)
-2. Pull the binary out of the official Docker image layers — either
-   by booting the image once via Docker on a host that has it
-   (`docker save falkordb/falkordb:latest | tar -xf -`), or by
-   downloading the image manifest via curl and concatenating the
-   layers into a single tarball.
-3. Start: `nohup /usr/local/bin/falkordb --port 6389 --data-dir /var/lib/falkordb`
-4. Apply migrations:
+The wire-up path on a host without Docker is to extract the
+binary out of the official Docker image via the Docker
+registry HTTP API. The script that does this is committed at
+`data-layer-falkordb/lib/docker_image_install.sh`.
+
+Steps (verified working on 2026-09-15 against FalkorDB 4.20.4):
+
+1. `apt install -y redis-server` (already done in 10.3).
+2. `bash data-layer-falkordb/lib/docker_image_install.sh`
+   - Acquires an anonymous Docker registry bearer token via
+     `auth.docker.io/token?service=registry.docker.io&scope=repository:falkordb/falkordb:pull`.
+   - Fetches the manifest list (`application/vnd.docker.distribution.manifest.list.v2+json`),
+     picks the linux/amd64 entry, fetches that platform-specific
+     manifest, then iterates its 18 layers downloading each one
+     and grepping for `var/lib/falkordb/bin/falkordb.so`.
+   - Extracts the matching layer into `/var/lib/falkordb/bin/`
+     and also installs `run.sh` (as the `/usr/local/bin/falkordb`
+     wrapper) + `gen-certs.sh` (TLS helper).
+3. Start the server: `redis-server --loadmodule /var/lib/falkordb/bin/falkordb.so --port 6389 --dir /var/lib/falkordb/data`
+   - falkordb rides on redis-server as a loadable module; the
+     default RESP port (6379) collides with the redis cache layer
+     so the wire-up uses 6389.
+4. Apply the 2 cypher migrations:
    `DATA_LAYER_FALKORDB_URL=redis://127.0.0.1:6389 bash data-layer-falkordb/lib/install.sh install`
-5. Verify: `redis-cli -p 6389 GRAPH.QUERY data_layer "MATCH (n) RETURN count(n)"`
-
-NOTE: the URL pattern in `lib/falkordb.sh` (`v1.2.0/falkordb-linux-x86_64.tar.gz`)
-is outdated and returns HTTP 404. The asset name + URL pattern
-has changed across releases. Override via
-`DATA_LAYER_FALKORDB_TARBALL_URL` with a URL confirmed via
-`api.github.com/repos/FalkorDB/FalkorDB/releases`.
+5. Verify end-to-end:
+   - `redis-cli -p 6389 PING` → PONG
+   - `redis-cli -p 6389 MODULE LIST` shows `graph 42004` + `vectorset`
+   - `redis-cli -p 6389 GRAPH.QUERY data_layer "CALL db.labels() YIELD label RETURN label"` → returns label list
+   - `redis-cli -p 6389 GRAPH.QUERY data_layer "MATCH (n) RETURN count(n)"` → returns row count
+   - log line: `Starting up FalkorDB version 4.20.4.` + `Module 'graph' loaded from /var/lib/falkordb/bin/falkordb.so` + `Ready to accept connections tcp`
 
 ### 10.6 Canonical MCP end-to-end check
 
