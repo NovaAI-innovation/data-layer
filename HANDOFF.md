@@ -39,7 +39,13 @@ registered in `manifest.md` line 23).
 | Phase 0 docs: submodule-ownership index + per-submodule SCHEMAS.md (postgres/redis/falkordb/qdrant) + adapter TOOLS_AND_WIRING.md | ✅ (2026-09-16; 6 docs, 2,213 lines; see `docs/SUBMODULE_OWNERSHIP.md` + per-submodule `SCHEMAS.md`/`TOOLS_AND_WIRING.md`) |
 | P0.1 — SEC-1 SQL injection via MCP tool input (cheapest probe, biggest blocker) | ✅ (2026-09-16; 18 write verbs refused structurally before cursor opens; 13/14 read tools use parameterized queries; `_tool_health_check` uses constant table list with `# noqa: S608`; 1 known limitation: plpgsql bypass via `SELECT my_dml_func()` — follow-up: connect MCP user with `default_transaction_read_only=on`) |
 | P0.2..P0.9 — remaining boundary probes (auth bypass, tenant-prefix, schema invariants, idempotency, pool exhaustion, throughput, scale, chaos) | ❌ (designed, not run; see HANDOFF §3.2 + §4) |
-| LICENSE file in any of the 6 repos | ❌ (P1.1) |
+| LICENSE files in all 6 repos (umbrella + adapters + postgres + redis + falkordb + qdrant) | ✅ (2026-09-16; commits 0698947 / 86d069e / ec7fb0e / aae59ee / d6e4842 / 0d2d0aa; BSD-3-Clause for umbrella+adapters+redis, PostgreSQL License for postgres, SSPL v1 for falkordb, Apache-2.0 for qdrant) |
+| NOTICE bundled (third-party attributions) | ✅ (2026-09-16; commit c3e08de; covers PostgreSQL+pgvector, Valkey+Redis, FalkorDB, Qdrant, psycopg, asyncpg, redis-py, qdrant-client, fastembed, sentence-transformers, Agent Zero, MCP SDK, LiteLLM, Flask, Alpine.js) |
+| CONTRIBUTING.md (ICLA + CCLA + DCO) | ✅ (2026-09-16; commit c3e08de; aligned with per-submodule LICENSE posture) |
+| Umbrella TOOLS_AND_WIRING.md (orchestration wiring) | ✅ (2026-09-16; commit c3e08de; covers bootstrap, install.sh, docker-compose.yml, .gitmodules, MCP registration history, versioning/tagging workflow) |
+| Redis swap to valkey/valkey:8-alpine | ✅ (2026-09-16; commit 86d069e in data-layer-redis; both BSD-3; RESP+on-disk format compatible, no source changes needed) |
+| Per-project MCP dedupe (umbrella + adapters `.a0proj/mcp_servers.json` → `{}`) | ✅ (2026-09-16; global /a0/usr/settings.json is canonical; backups at `.bak-20260916T164142Z-mcp-dedupe` on both files) |
+| Qdrant submodule drift cleanup | ✅ (2026-09-16; reverted uncommitted lib/seed.py + lib/mail_replay.py edits from prior session; HEAD now clean at aae59ee) |
 | data-layer-redis container running on host port 6380 | ❌ (live native Redis 8.0.6 is on 6379 inside falkordb-test-sandbox; compose pin is `redis:7.2-alpine`) |
 | Phase 1+ mutations landed | ❌ (only Phase 0 + P0.1 are on disk; the rest is design) |
 
