@@ -27,7 +27,8 @@ data-layer-adapters/                its own repo — framework adapters + univer
 | `data-layer-redis` | Framework-agnostic redis cache layer + tenant isolation + bounded payloads | Schema, postgres/falkordb/qdrant, framework adapters |
 | `data-layer-falkordb` | Framework-agnostic falkordb graph layer + node/edge schema | Cache, postgres, qdrant, framework adapters |
 | `data-layer-qdrant` | Vector index (Qdrant) + collection migrations + bootstrap-driven seed pipeline + 2-collection SOT model (mpg_source_authority_documents + mpg_emails) | Postgres schema, framework adapters |
-| `data-layer-adapters` | Framework adapters collection (A0 + Hermes) + **universal MCP server** (21 tools, zero write tools by default; gated `rag.ingest.*` writes) + redis_publish_hook sidecar | Service-level storage backends |
+| `data-layer-adapters` | Framework adapters collection (A0 + Hermes)
+| **agent-zero service** (compose) | One-shot bootstrap that wires the Agent Zero instance into the data-layer stack (installs agent-zero deps + plugin via `data-layer-adapters/agent-zero/lib/{deps,plugin}.sh`; applies `seeds/0001_default_agent.sql` + `seeds/0002_migrate_local_id.sql` to postgres); restart: `no`; the A0 web UI runs OUTSIDE the compose stack. Wired in `docker-compose.yml` as the 6th service. | All 5 upstream services healthy (postgres, redis, falkordb, qdrant, adapters) | + **universal MCP server** (21 tools, zero write tools by default; gated `rag.ingest.*` writes) + redis_publish_hook sidecar | Service-level storage backends |
 
 ## Dependency rules
 
