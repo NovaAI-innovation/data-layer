@@ -40,6 +40,14 @@ knowledge_import.json
 *.tar.gz
 *.bak
 
+# Runtime marker files (created after successful bootstrap of a service;
+# tracked separately as deployment state, not source).
+.qdrant-initialized
+**/.qdrant-initialized
+.application-built
+**/.application-built
+**/.service-initialized
+
 # Local working copy of data-layer-qdrant (lives in this umbrella's
 # tree as a development convenience; the canonical copy is the
 # sibling repo `github.com/NovaAI-innovation/data-layer-qdrant`).

@@ -1,311 +1,236 @@
-# HANDOFF — data-layer build, Qdrant RAG layer
+# HANDOFF — data-layer build, Phase 0 + multi-angle gap + license posture
 
-**Written:** 2026-09-15 14:40 MDT
-**Author:** Agent 0 (autonomous, after build session stalled mid-task)
+**Written:** 2026-09-16 02:37 MDT
+**Author:** Agent 0 (autonomous, after multi-angle review + stress-design + legal-analysis session)
 **Active preset:** Efficiency
 **Project:** `/a0/usr/projects/data-layer/`
+**Prior HANDOFF:** see git history — `HANDOFF.md` dated 2026-09-15 14:40 MDT covered Phase A–H of the Qdrant build session.
 
-This document is the authoritative handoff for resuming the data-layer build.
-The session that wrote it was building the Qdrant-backed RAG layer
-(`data-layer-qdrant`) as the fifth submodule, plus wiring it into the
-existing umbrella + 4 submodules. The session is mid-flight; this
-file is what you'd hand to a fresh agent to pick up cleanly.
+This document is the authoritative handoff for resuming the data-layer
+build. The session that wrote it produced: (1) an empirical license
+posture across every backing engine + Python client, (2) a multi-angle
+gap analysis across PM / AI-ML Engineer / Marketing / Systems
+Architect perspectives (24 items), (3) a stress / edge / boundary
+probe design (19 probes) per the [run-completion-contract] directive
+that boundary characterization must precede new capability work, and
+(4) a merged + optimally ordered backlog of 53 items across 6 phases.
+
+The canonical structure used throughout this session and persisted
+for future sessions is the six-field structure: **problem → target or
+root cause → mutation → reasoning → expected result → completion
+validation**. This structure is now a skill at
+`/a0/usr/skills/multi-angle-gap-analysis/SKILL.md` (97 lines,
+registered in `manifest.md` line 23).
 
 ---
 
-## 1. Status snapshot
+## 1. Status snapshot (as of session close)
 
 | Item | State |
 |---|---|
-| Submodule scaffolding (`data-layer-qdrant/`) | **complete on disk, NOT YET COMMITTED** |
-| `lib/`, `migrations/`, `tests/`, `docs/decisions/0001`, `.a0proj/` | all written |
-| `bootstrap` + `Dockerfile` + `qdrant_config.yaml` + `docker-entrypoint.sh` | written |
-| `requirements.txt` (qdrant-client, fastembed, sentence-transformers, pyyaml, requests, pytest) | written |
-| `qdrant-client` Python package in `/opt/venv` | **installed (1.10+)** |
-| Qdrant runtime | **running natively** (binary at `/usr/local/bin/qdrant` v1.19.1, config at `/opt/qdrant/config/production.yaml`, storage at `/opt/qdrant/storage`, listening on `0.0.0.0:6333` + `6334`, `/healthz` returns "healthz check passed") |
-| Qdrant collections | **NOT YET CREATED** — `migrations/apply_migrations.py` is written but not yet run against the live server |
-| Initial ingestion of source-authority documents | **NOT DONE** — `lib/seed.py` written, awaiting live run |
-| `git init` for `data-layer-qdrant` | **NOT DONE** — repo has files but no `.git/` yet |
-| GitHub repo `github.com/NovaAI-innovation/data-layer-qdrant` | **NOT CREATED** |
-| `data-layer-adapters/mcp/tools/rag.py` (new RAG tools) | **NOT WRITTEN** |
-| `data-layer-postgres/migrations/0007_emails.sql` | **NOT WRITTEN** |
-| Umbrella `.gitmodules`, `docker-compose.yml`, docs (architecture.md, services/README.md, README.md) | **NOT UPDATED for qdrant** |
-| `data_management` plugin | unchanged (still gitignored at umbrella level) |
+| All 5 submodules wired live (postgres / redis / falkordb / qdrant / adapters) | ✅ |
+| All 5 submodules git-initialized (.git/ present in each) | ✅ |
+| 7/7 postgres migrations applied (0001..0007 including 0007_emails.sql) | ✅ |
+| 2/2 qdrant collections created (mpg_source_authority_documents + mpg_emails); .qdrant-initialized marker present | ✅ |
+| Universal MCP server with 21 tools (14 postgres + 7 rag.*) | ✅ |
+| Dual-write cache layer + publish hook | ✅ |
+| Native wire-up runbook (HANDOFF §10 from 2026-09-15) | ✅ |
+| MCP server registered in Agent Zero global config (`/a0/usr/settings.json` mcp_servers) | ✅ (2026-09-16; per-project duplicates cleared to `{}` with backups at `.bak-20260916T164142Z-mcp-dedupe`) |
+| Phase 0 docs: submodule-ownership index + per-submodule SCHEMAS.md (postgres/redis/falkordb/qdrant) + adapter TOOLS_AND_WIRING.md | ✅ (2026-09-16; 6 docs, 2,213 lines; see `docs/SUBMODULE_OWNERSHIP.md` + per-submodule `SCHEMAS.md`/`TOOLS_AND_WIRING.md`) |
+| P0.1 — SEC-1 SQL injection via MCP tool input (cheapest probe, biggest blocker) | ✅ (2026-09-16; 18 write verbs refused structurally before cursor opens; 13/14 read tools use parameterized queries; `_tool_health_check` uses constant table list with `# noqa: S608`; 1 known limitation: plpgsql bypass via `SELECT my_dml_func()` — follow-up: connect MCP user with `default_transaction_read_only=on`) |
+| P0.2..P0.9 — remaining boundary probes (auth bypass, tenant-prefix, schema invariants, idempotency, pool exhaustion, throughput, scale, chaos) | ❌ (designed, not run; see HANDOFF §3.2 + §4) |
+| LICENSE file in any of the 6 repos | ❌ (P1.1) |
+| data-layer-redis container running on host port 6380 | ❌ (live native Redis 8.0.6 is on 6379 inside falkordb-test-sandbox; compose pin is `redis:7.2-alpine`) |
+| Phase 1+ mutations landed | ❌ (only Phase 0 + P0.1 are on disk; the rest is design) |
+
+**The single sharpest decision pending:** whether to switch the live
+deployment to BSD-3 Redis (Valkey 8.x or redis:7.2-alpine) and pick a
+LICENSE posture for each of the 6 repos. Both unblock every
+downstream capability.
 
 ---
 
-## 2. Architecture (user-confirmed)
-
-Per the user's directive, the data-layer stack owns these concerns:
+## 2. Architecture (unchanged from prior HANDOFF)
 
 | Layer | Role | Path |
 |---|---|---|
 | `data-layer-postgres` | historical runtime record (immutable) | `/a0/usr/projects/data-layer/data-layer-postgres/` |
 | `data-layer-redis` | ephemeral knowledge cache | `/a0/usr/projects/data-layer/data-layer-redis/` |
-| `data-layer-falkordb` | graph layer (nodes + edges tying layers together) | `/a0/usr/projects/data-layer/data-layer-falkordb/` |
-| **`data-layer-qdrant`** | **RAG Source of Truth (this build)** | `/a0/usr/projects/data-layer/data-layer-qdrant/` |
-| `data-layer-adapters` | framework adapters + **universal MCP that owns ALL agent retrieval tools** | `/a0/usr/projects/data-layer/data-layer-adapters/` |
+| `data-layer-falkordb` | graph layer | `/a0/usr/projects/data-layer/data-layer-falkordb/` |
+| `data-layer-qdrant` | RAG Source of Truth | `/a0/usr/projects/data-layer/data-layer-qdrant/` |
+| `data-layer-adapters` | framework adapters + universal MCP (21 tools, single agent-facing retrieval surface) | `/a0/usr/projects/data-layer/data-layer-adapters/` |
 
-Qdrant is the **fifth** submodule. The MCP server (currently at
-`data-layer-adapters/mcp/`) is the **single agent-facing retrieval
-surface** — it will own Postgres read tools + Qdrant read tools +
-(in the future) Falkordb graph traversal. **Zero write tools** are
-exposed to the agent: writes are managed by the bootstrap scripts
-under documented install/seed conditions, gated by
-`MCP_INSTALL_MODE=1` env var.
-
----
-
-## 3. Architecture decisions already locked in
-
-- **Embedding model:** `sentence-transformers/all-mpnet-base-v2` (768-dim cosine). Approved by user.
-- **Qdrant mode:** native binary (Docker not available in this container). User approved `try-apt then binary`. apt-get install qdrant returned "Unable to locate package"; binary downloaded from `github.com/qdrant/qdrant/releases/download/v1.19.1/` and installed at `/usr/local/bin/qdrant`.
-- **Submodule URL:** `github.com/NovaAI-innovation/data-layer-qdrant` — approved.
-- **Deployment copy:** at its own project directory per user (e.g. `/a0/usr/qdrant/`, peer to `/a0/usr/mcp/`).
-- **Two collections:** `mpg_source_authority_documents` (corpus, point ID = md5(sha256)) + `mpg_emails` (FK to postgres `emails.id`).
-- **Initial ingestion:** seed script reads `/a0/usr/workdir/MPG_DBSS_E2E_V03/MPG_DBSS_SOURCE_AUTHORITY_CONTROLLED_FIXTURE_v03.csv` (775 lines; filters `do_not_ingest_y_n=Y`, marks `superseded_y_n=Y` rows with `lifecycle_status=superseded`).
-- **Email ingestion pipeline:** Postgres is the immutable record (new `emails` table in 0007_emails.sql); Qdrant is the derived semantic index; embedding attaches later (placeholder zero-vectors for now so smoke tests pass).
+Postgres is the **single source of truth** for the email record. Qdrant
+is the derived semantic index; the `postgres.emails.qdrant_point_id`
+column is the join key. Search-side SOT enforcement: `rag.search`
+always excludes `do_not_ingest_y_n='Y'` and
+`lifecycle_status='superseded'`. The filter cannot be overridden by
+the caller.
 
 ---
 
-## 4. What's NOT done — the actual handoff
+## 3. Decisions made this session
 
-The remaining work breaks into 8 ordered phases. Each phase is a
-block of todos that must complete in order.
+### 3.1 License posture (empirical)
 
-### Phase A — git init the new submodule (TASK 8)
+Verified via `importlib.metadata` + upstream `LICENSE` files + Debian
+`copyright`:
 
-The submodule directory exists with all files, but no `.git/`
-inside. The prior session was interrupted before the init
-completed (the `set -e` in a terminal command killed the script
-mid-way after `docs/decisions/` failed an `ls` check).
+| Component | License | Verdict for monetization |
+|---|---|---|
+| PostgreSQL + pgvector | PostgreSQL License (BSD-style) | Permissive but NOT Apache 2.0 or MIT |
+| Redis (compose pin: redis:7.2-alpine) | BSD-3-Clause | Permissive but NOT Apache 2.0 or MIT |
+| Redis (running native: 8.0.6 on port 6379 inside falkordb-test-sandbox) | RSALv2 + SSPLv1 + AGPLv3 | **NOT** Apache 2.0 or MIT; source-available; blocks selling binary; SSPL force-discloses hosted service stack |
+| FalkorDB | Apache-2.0 | ✅ |
+| Qdrant | Apache-2.0 | ✅ |
+| psycopg / psycopg-binary | LGPL-3.0-only | Weak copyleft; NOT Apache 2.0 or MIT |
+| redis-py | MIT | ✅ |
+| qdrant-client | Apache-2.0 | ✅ |
+| fastembed (library) | Apache-2.0 | ✅ |
+| fastembed (bundled ONNX models) | "Other/Proprietary License" per classifier | ⚠️ Per-model audit needed |
+| sentence-transformers | Apache-2.0 | ✅ |
+| PyYAML | MIT | ✅ |
+| requests | Apache-2.0 | ✅ |
+| pytest | MIT | ✅ |
 
-**To resume:**
+**Recommendation:** Switch the live deployment to Valkey 8.x
+(drop-in BSD-3 fork of Redis 7.2) — same RESP protocol, same
+`redis-py` client, removes SSPL/RSAL/AGPL exposure entirely.
 
-```bash
-cd /a0/usr/projects/data-layer/data-layer-qdrant
-git init -b main
-git config user.name "data-layer scaffold"
-git config user.email "agent@data-layer.local"
-git add -A
-# verify .a0proj/secrets.env and __pycache__/ are NOT staged:
-git status --short | grep -E 'secrets\.env|__pycache__' && echo "FAIL" || echo "OK"
-git commit -m "feat(qdrant): scaffold submodule — Qdrant container, 2-collection SOT model, RAG bootstrap
+### 3.2 Multi-angle gap analysis
 
-Initial scaffolding for the Qdrant-backed RAG layer of the Agent Zero
-data-layer stack.
+24 items across 4 perspectives (PM / AI-ML / Marketing / Systems
+Architect), each in the canonical six-field structure. Items live in
+`docs/completion-audit-2026-09-15.md` (raw audit) and in the merged
+backlog in §4 below.
 
-- Dockerfile + docker-entrypoint.sh + qdrant_config.yaml (docker-compose path)
-- bootstrap dispatcher (install | verify | status | reset | seed)
-- lib/ helpers: install.sh, qdrant.{sh,py}, seed.{sh,py}, status.py
-- migrations/0001 (mpg_source_authority_documents) + 0002 (mpg_emails) + apply_migrations.py
-- tests/smoke.sh (5 assertions) + tests/test_collections.py (schema asserts)
-- requirements.txt + .a0proj/ + ADR 0001
+### 3.3 Stress / edge / boundary probe design
 
-Embedding: sentence-transformers/all-mpnet-base-v2 (768-dim cosine)."
-```
+19 probes (5 STRESS, 5 EDGE, 4 CONCURRENCY, 5 CHAOS, 4 SECURITY, 5
+BOUNDARY → final delivery tightened to 19 across the categories) per
+the [run-completion-contract] directive that boundary characterization
+must precede new capability work. Probes are NOT mutations; they are
+characterization. Run Phase 0 BEFORE any Phase 1+ mutation.
 
-**Done when:** `git log --oneline` shows one commit on `main`;
-`git status --short` is empty (ignoring .gitignored items);
-`.a0proj/secrets.env` and `__pycache__/` are NOT in `git ls-files`.
+### 3.4 Merged + optimally ordered backlog
 
-### Phase B — postgres `emails` table migration (TASK 9)
+53 items merged across (9 todos from license scan) ∪ (24 multi-angle
+gaps) ∪ (19 stress/edge/boundary probes) ∪ (1 email-pipeline
+capability surfaced from memory). Ordered by dependency: probes gate
+capability work; legal baseline gates external distribution; adoption
+enablers gate funnel; capability additions gate product value;
+commercial/scale gate revenue. See §4.
 
-Write `/a0/usr/projects/data-layer/data-layer-postgres/migrations/0007_emails.sql`.
+### 3.5 Canonical structure
 
-Required columns (from the design discussion):
-- `id uuid PRIMARY KEY DEFAULT uuid_generate_v4()`
-- `agent_id uuid REFERENCES agents(id)` (nullable for inbound external mail)
-- `direction text CHECK (direction IN ('in','out'))`
-- `message_id text UNIQUE NOT NULL` (RFC 5322 Message-ID)
-- `in_reply_to text REFERENCES emails(message_id) ON DELETE SET NULL`
-- `thread_id uuid`
-- `subject text NOT NULL`
-- `from_email text NOT NULL`
-- `to_emails jsonb NOT NULL DEFAULT '[]'`
-- `cc_emails jsonb NOT NULL DEFAULT '[]'`
-- `bcc_emails jsonb NOT NULL DEFAULT '[]'`
-- `body text NOT NULL`
-- `body_html text`
-- `raw_mime text`
-- `attachments jsonb NOT NULL DEFAULT '[]'`
-- `external_ref jsonb NOT NULL DEFAULT '{}'`
-- `received_at timestamptz NOT NULL DEFAULT now()`
-- `sent_at timestamptz`
-- `ingested_at timestamptz NOT NULL DEFAULT now()`
-- `project_id uuid REFERENCES projects(id)`
-- `qdrant_point_id uuid`
-- `qdrant_ingested_y_n text NOT NULL DEFAULT 'N' CHECK (qdrant_ingested_y_n IN ('Y','N','SUPERSEDED','DO_NOT_INGEST'))`
+The six-field structure (problem → target or root cause → mutation →
+reasoning → expected result → completion validation) is now a skill:
+`/a0/usr/skills/multi-angle-gap-analysis/SKILL.md` (97 lines,
+registered in `manifest.md` line 23). Future "from a few different
+angles" / "gap analysis" requests will inherit this structure.
 
-Indexes:
-- `idx_emails_thread (thread_id, received_at)`
-- `idx_emails_from (from_email, received_at DESC)`
-- `idx_emails_received (received_at DESC)`
-- `idx_emails_message_id (message_id)` (UNIQUE already creates one)
-- `idx_emails_qdrant_ingested (qdrant_ingested_y_n) WHERE qdrant_ingested_y_n != 'Y'`
+---
 
-Idempotent: `CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT
-EXISTS`. Commit + push to `data-layer-postgres` remote.
+## 4. Outstanding work — the merged 53-item backlog
 
-### Phase C — MCP RAG integration (TASKS 10–15)
+### Phase 0 — Boundary characterization (GATE before any mutation)
 
-In `data-layer-adapters/mcp/`:
+Probes are NOT mutations. They characterize the substrate so later
+mutations aren't invalidated. Run in this order:
 
-1. Create `tools/rag.py` — 7 tool functions:
-   - `rag.health` (read) — `GET /healthz`
-   - `rag.collections.list` (read) — `GET /collections`
-   - `rag.collection.info` (read) — `GET /collections/{name}`
-   - `rag.search` (read) — `POST /collections/{name}/points/search` with vector + filter (always excludes `do_not_ingest_y_n=Y` + `superseded_y_n=Y`)
-   - `rag.ingest.status` (read) — last ingest state from a JSON marker file
-   - `rag.ingest.point` (write, gated) — `PUT /collections/{name}/points`; refuses if SOT invariant violated
-   - `rag.ingest.batch` (write, gated) — read CSV, idempotent batch upsert
+| # | Probe | Origin | Why first |
+|---|---|---|---|
+| P0.1 | SEC-1 SQL injection via MCP tool input | stress/security | Cheapest probe; biggest blocker if failed |
+| P0.2 | SEC-2 MCP authentication bypass | stress/security | Blocks PM-5 commercial tier |
+| P0.3 | ED-2 Tenant-prefix collision / bypass | stress/edge | Blocks PM-5, SYS-7 multi-tenancy |
+| P0.4 | ED-1/ED-3/ED-4/ED-5 schema invariant contract | stress/edge | Gates every AIML/PM mutation |
+| P0.5 | CC-1 Idempotency under double-application | stress/concurrency | Gates bootstrap reliability |
+| P0.6 | BD-1 Connection pool exhaustion | stress/boundary | Gates multi-tenant work |
+| P0.7 | ST-1/ST-3/ST-4 Throughput ceiling | stress/load | Anchors downstream design |
+| P0.8 | ST-2/ST-5/CC-2/CC-3 Scale and concurrency | stress | AIML-2 reasoning-trace + AIML-4 cross-component learning |
+| P0.9 | CH-1..CH-5 / BD-2 / BD-3 Chaos + scale boundary | stress/chaos | Production rollout gate |
 
-   Plus `TOOL_REGISTRY_RAG = {...}` and `TOOL_DESCRIPTORS_RAG = [...]`.
+**Re-prioritization triggers** (probe result → which Phase 1+ items move):
+- P0.2 fail → block PM-5 / Phase 5 commercial
+- P0.3 fail → block PM-5, SYS-7
+- P0.4 cross-system join fail → block AIML-4
+- P0.7 dual-write lag > 300s TTL → block AIML-4
+- P0.8 recall at 100k < 0.85 → AIML-3 moves to Phase 1
+- P0.6 connection limit trivially exploitable → SYS-7 moves to Phase 1
 
-2. Update `tools/safety.py` — add:
-   - `assert_install_mode()` → returns error if `MCP_INSTALL_MODE != '1'`
-   - `assert_sot_invariant(payload)` → returns error if `do_not_ingest_y_n == 'Y'` or `superseded_y_n == 'Y'` (write-time refusal)
+### Phase 1 — Legal / distribution blockers
 
-3. Update `server.py`:
-   - Add `QDRANT_URL = os.environ.get('DATA_LAYER_QDRANT_URL', 'http://localhost:6333')`
-   - `from tools.rag import TOOL_REGISTRY_RAG, TOOL_DESCRIPTORS_RAG`
-   - `tools/list` returns `TOOL_DESCRIPTORS + TOOL_DESCRIPTORS_RAG + FRAMEWORK_DESCRIPTORS`
-   - `tools/call` falls back to `TOOL_REGISTRY_RAG` if not in `TOOL_REGISTRY`
-   - Update `initialize` serverInfo.description
+Until these land, the project is internal-only and not legally
+shippable.
 
-4. Update `tests/test_server.py`:
-   - `test_tools_list_count_21` — assert 21 tools (14 postgres + 7 rag)
-   - `test_rag_search_returns_error_without_qdrant` — graceful error
-   - `test_rag_ingest_gated_off_by_default` — gate error without `MCP_INSTALL_MODE`
-   - `test_rag_ingest_gated_on_with_install_mode` — gate passes with `MCP_INSTALL_MODE=1`
-   - `test_rag_health_returns_error_without_qdrant` — graceful error
-   - All 12 existing tests still pass
+| # | Item | Origin | Priority |
+|---|---|---|---|
+| P1.1 | Add LICENSE file to all 6 repos | todo-1 = PM-1 | urgent |
+| P1.2 | Swap native Redis 8.0.6 → Valkey 8.x or redis:7.2-alpine | todo-2 | high |
+| P1.3 | Update data-layer-redis/Dockerfile FROM to valkey/valkey:8-alpine | todo-3 | high |
+| P1.4 | Bundle NOTICE file for distributed artifacts | todo-6 | medium |
+| P1.5 | Audit fastembed bundled model artifacts for license compatibility | todo-5 | medium |
+| P1.6 | Trademark + product name posture | todo-7 | medium |
+| P1.7 | Decide dual-license posture for data-layer code | todo-8 | medium |
+| P1.8 | 2-hour legal review (paid) | todo-4 | high |
+| P1.9 | Add CLA / DCO across all repos | todo-9 | low |
 
-5. Update `mcp/README.md`:
-   - Tool catalogue count: 14 → 21
-   - New "RAG tools (Qdrant-backed)" section with the 7 tools + gating rules
-   - Config env table: add `DATA_LAYER_QDRANT_URL`
-   - Governance note: `rag.ingest.*` gated by `MCP_INSTALL_MODE`
+### Phase 2 — Adoption enablers (after legal baseline + probes pass)
 
-6. Update `data-layer-adapters/README.md` (umbrella submodule's README) —
-   cross-reference `data-layer-qdrant/` and update the Universal MCP
-   table to 21 tools.
+| # | Item | Origin | Notes |
+|---|---|---|---|
+| P2.1 | Pass all six `DW_*` env vars in compose | PM-2 | Gated by P1.1 LICENSE |
+| P2.2 | Auto-discover submodules in `bootstrap` | SYS-1 | |
+| P2.3 | Auto-discover frameworks in adapters bootstrap | SYS-2 | |
+| P2.4 | Document install paths (Docker / native / K8s) | PM-3 | |
+| P2.5 | README positioning rewrite | MKT-1 | |
+| P2.6 | Community health files (CONTRIBUTING / SECURITY / CODE_OF_CONDUCT / issue templates) in all 6 repos | MKT-5 | |
+| P2.7 | Backup / restore scripts (`bin/backup.sh` + `bin/restore.sh`) | SYS-6 | |
+| P2.8 | Observability baseline (Prometheus + OTel + Grafana dashboards) | SYS-4 | |
+| P2.9 | Secret rotation path (Vault / SOPS) | SYS-5 | |
 
-**Commit + push** to `data-layer-adapters` remote after each
-substantive change (or one combined commit at the end).
+### Phase 3 — Capability additions (learning loop)
 
-### Phase D — Umbrella integration (TASKS 16–20)
+| # | Item | Origin | Depends on |
+|---|---|---|---|
+| P3.1 | Outcome channel (`outcome_events` table + `feedback.report_outcome`) | AIML-1 | P0.4 ED-1, P2.1 |
+| P3.2 | Reasoning-trace capture (`messages.reasoning_steps jsonb`) | AIML-2 | P0.8 CC-2 row-version |
+| P3.3 | Cross-component learning (DW_* all on + falkordb outcome edges) | AIML-4 | P0.7 ST-3, P2.1 |
+| P3.4 | Embedding-drift detection (`embedded_with_model` + `rag.embedding.drift_check`) | AIML-3 | P0.8 ST-2, P0.4 ED-3 |
+| P3.5 | Retrieval provenance (score + source metadata on every search result) | AIML-5 | SEC-3 |
+| P3.6 | Trajectory replay (`replay.run_session` tool) | AIML-6 | P3.1, P3.2 |
+| P3.7 | Email pipeline (live IMAP/SMTP listener + qdrant upsert) | memory | P3.1, P2.1 |
 
-In `/a0/usr/projects/data-layer/` (the umbrella):
+### Phase 4 — Distribution (after product is shippable)
 
-1. **`.gitmodules`** — append:
-   ```
-   [submodule "data-layer-qdrant"]
-       path = data-layer-qdrant
-       url = https://github.com/NovaAI-innovation/data-layer-qdrant.git
-       branch = main
-   ```
+| # | Item | Origin |
+|---|---|---|
+| P4.1 | Competitive matrix | MKT-2 |
+| P4.2 | README badges + PyPI + awesome-lists | MKT-3 |
+| P4.3 | Case study infrastructure | MKT-4 |
+| P4.4 | Public roadmap | MKT-6 |
+| P4.5 | Onboarding telemetry (`--report` opt-in flag) | PM-4 |
 
-2. **`docker-compose.yml`** — add `qdrant:` service block (image `qdrant/qdrant:v1.19.1`, ports 6333/6334, named volume `qdrant_storage`, mounts of `./data-layer-qdrant/{qdrant_config.yaml,migrations,seeds,docker-entrypoint.sh}` into `/qdrant/...`, network `data_layer_net`).
+### Phase 5 — Commercial + scale (after first paying customer signal)
 
-3. **`bootstrap`** (umbrella-level) — verify it delegates to each submodule's bootstrap (including the new qdrant one).
+| # | Item | Origin | Depends on |
+|---|---|---|---|
+| P5.1 | Commercial tier doc (`docs/commercial-model.md`) | PM-5 | P1.1, P0.2, P0.3 |
+| P5.2 | Upgrade guide (`docs/upgrade.md`) | PM-6 | |
+| P5.3 | Helm chart | SYS-3 | |
+| P5.4 | Multi-tenancy (`bin/tenant.sh add <name>`) | SYS-7 | P0.3, P0.6, P0.9 BD-2 |
+| P5.5 | Readiness vs liveness split per backend | SYS-8 | |
 
-4. **`docs/architecture.md`** — add `data-layer-qdrant` to the architecture diagram + describe its role + the cross-layer email→postgres→qdrant flow.
-
-5. **`docs/services/README.md`** — add a "Qdrant (data-layer-qdrant)" section with role, port, collection model, integration points.
-
-6. **`README.md`** (umbrella) — add `data-layer-qdrant` to the submodule listing + the "What lives where" section.
-
-**Local smoke test (TASK 20):** run `cd data-layer-adapters/mcp && python3 -m unittest tests.test_server -v` and confirm 14 + new RAG structural tests pass.
-
-**Commit + push** to umbrella remote.
-
-### Phase E — Live Qdrant bring-up + ingestion (TASKS 21–24)
-
-The Qdrant binary is **already running** (PID at last check,
-listening on `:6333`). So Phase E is partially complete already:
-
-1. ~~**Task 21 (Bring up Qdrant container)**~~ — done via binary install. No container needed. Mark as completed.
-
-2. **Task 22 (Apply migrations)**:
-   ```bash
-   cd /a0/usr/projects/data-layer/data-layer-qdrant
-   /opt/venv/bin/python migrations/apply_migrations.py
-   # Expected output:
-   #   mpg_source_authority_documents: created (200) [or: exists, skipping]
-   #   mpg_emails: created (200) [or: exists, skipping]
-   ```
-
-3. **Task 23 (Initial ingestion)**:
-   ```bash
-   cd /a0/usr/projects/data-layer/data-layer-qdrant
-   DATA_LAYER_QDRANT_URL=http://localhost:6333 bash bootstrap seed
-   # Reads /a0/usr/workdir/MPG_DBSS_E2E_V03/MPG_DBSS_SOURCE_AUTHORITY_CONTROLLED_FIXTURE_v03.csv
-   # Skips do_not_ingest_y_n=Y rows, marks superseded rows
-   # Expected: uploaded=773+ skipped=1-3 batches=12 (depending on batch_size)
-   ```
-
-4. **Task 24 (Verify)**:
-   ```bash
-   bash bootstrap status
-   bash tests/smoke.sh
-   /opt/venv/bin/python tests/test_collections.py --url http://localhost:6333
-   # All 5 smoke assertions should pass; collection point count > 0
-   ```
-
-### Phase F — GitHub repo creation + push (TASK 25 + 26–28)
-
-User approved `2a` (create the repo via `gh` CLI). When picking up:
-
-```bash
-# Create the GitHub repo
-cd /a0/usr/projects/data-layer/data-layer-qdrant
-gh repo create NovaAI-innovation/data-layer-qdrant --public \
-    --description "Qdrant-backed RAG layer for the Agent Zero data-layer stack. Source of Truth for MPG corpus + emails. Paired with data-layer-postgres (record), data-layer-redis (ephemeral), data-layer-falkordb (graph)." \
-    --confirm
-git remote add origin https://github.com/NovaAI-innovation/data-layer-qdrant.git
-git push -u origin main
-
-# Then update umbrella + push
-git -C /a0/usr/projects/data-layer add .gitmodules data-layer-qdrant docker-compose.yml bootstrap install.sh docs/architecture.md docs/services/README.md README.md data-layer-adapters/{README.md,mcp/{README.md,server.py,tools/{rag.py,safety.py,retrieval.py},tests/test_server.py}} data-layer-postgres/migrations/0007_emails.sql
-git -C /a0/usr/projects/data-layer commit -m "feat(umbrella): wire data-layer-qdrant into the stack + MCP rag.* tools + postgres emails table"
-git -C /a0/usr/projects/data-layer push -u origin main
-
-# Push the other submodule commits
-cd /a0/usr/projects/data-layer/data-layer-adapters && git push -u origin main
-cd /a0/usr/projects/data-layer/data-layer-postgres && git push -u origin main
-```
-
-### Phase G — Deployment copies (TASKS 29–30)
-
-```bash
-# Copy data-layer-qdrant to its own runtime location
-mkdir -p /a0/usr/qdrant
-rsync -a --exclude='.git' /a0/usr/projects/data-layer/data-layer-qdrant/ /a0/usr/qdrant/
-
-# Re-sync /a0/usr/mcp/ with the new MCP code (rag.py + updated server.py + safety.py)
-cp /a0/usr/projects/data-layer/data-layer-adapters/mcp/tools/rag.py /a0/usr/mcp/tools/
-cp /a0/usr/projects/data-layer/data-layer-adapters/mcp/server.py /a0/usr/mcp/
-cp /a0/usr/projects/data-layer/data-layer-adapters/mcp/tools/safety.py /a0/usr/mcp/tools/
-cp /a0/usr/projects/data-layer/data-layer-adapters/mcp/tests/test_server.py /a0/usr/mcp/tests/
-cp /a0/usr/projects/data-layer/data-layer-adapters/mcp/README.md /a0/usr/mcp/
-```
-
-### Phase H — Final verification + report (TASKS 31–32)
-
-For completion, the following must ALL hold:
-
-- [ ] `git status` clean in `data-layer-qdrant/`, `data-layer-adapters/`, `data-layer-postgres/`, umbrella
-- [ ] `git log --oneline` shows the expected commits on each
-- [ ] `local == origin/main` for all 4 repos (no unpushed commits)
-- [ ] Qdrant at `:6333` has 2 collections (`mpg_source_authority_documents` + `mpg_emails`) with vectors.size=768 + distance=Cosine
-- [ ] `mpg_source_authority_documents.points_count > 0` (seed ran)
-- [ ] `mpg_emails.points_count == 0` (no emails ingested yet — expected)
-- [ ] `python3 -m unittest tests.test_server -v` from `/a0/usr/mcp/` shows 21 tools + all structural tests pass
-- [ ] `tests/smoke.sh` passes all 5 assertions
-- [ ] `/a0/usr/qdrant/` mirrors `data-layer-qdrant/` (sans .git/)
-- [ ] No core files touched: `extract_tools.py` = 248 lines, `agent.py` = 1601 lines (unchanged)
-- [ ] `data_management` plugin unchanged at `/a0/usr/plugins/data_management/`
+**Cross-phase dependency edges** (the load-bearing ones):
+- P1.1 LICENSE → P1.7 dual-license → P5.1 commercial tier
+- P0.2 MCP auth + P0.3 tenant prefix → P5.1 commercial tier
+- P0.6 connection limit + P0.9 noisy-neighbor → P5.4 multi-tenancy
+- P0.4 ED-* passes → P3.1 outcome channel
+- P0.7 dual-write lag < TTL → P3.3 cross-component learning
+- P0.8 row-version finding → P3.2 reasoning traces
+- P0.8 ST-2 recall ≥ 0.85 → P3.4 stays Phase 3 (else moves to Phase 1)
+- P2.1 DW_* wiring → P3.3 cross-component learning
+- P3.1 outcome channel → P3.6 trajectory replay
 
 ---
 
@@ -313,204 +238,168 @@ For completion, the following must ALL hold:
 
 | Path | What |
 |---|---|
-| `/a0/usr/projects/data-layer/` | umbrella (this handoff lives here) |
-| `/a0/usr/projects/data-layer/data-layer-qdrant/` | new submodule source |
+| `/a0/usr/projects/data-layer/` | umbrella |
+| `/a0/usr/projects/data-layer/data-layer-qdrant/` | qdrant submodule source |
+| `/a0/usr/projects/data-layer/data-layer-qdrant/lib/mail_replay.py` | mbox import pipeline (Phase B mailbox bootstrap; not live IMAP) |
+| `/a0/usr/projects/data-layer/data-layer-qdrant/lib/seed.py` | SOT seed script (`MPG_DBSS_SOURCE_AUTHORITY_CONTROLLED_FIXTURE_v03.csv`) |
 | `/a0/usr/projects/data-layer/data-layer-adapters/mcp/` | universal MCP source |
-| `/a0/usr/projects/data-layer/data-layer-postgres/migrations/` | postgres schema (0001-0006 + new 0007 to write) |
-| `/a0/usr/qdrant/` | runtime deployment copy of qdrant submodule (TBD) |
-| `/a0/usr/mcp/` | runtime deployment copy of adapters MCP (currently has 14 tools; needs rag.py added) |
+| `/a0/usr/projects/data-layer/data-layer-postgres/migrations/` | postgres schema (0001..0007) |
+| `/a0/usr/qdrant/` | runtime deployment copy of qdrant submodule (mirrors data-layer-qdrant/ sans .git/) |
+| `/a0/usr/mcp/` | runtime deployment copy of adapters MCP |
 | `/usr/local/bin/qdrant` | qdrant 1.19.1 binary (running natively) |
 | `/opt/qdrant/storage/` | qdrant storage path |
 | `/opt/qdrant/config/production.yaml` | active qdrant config |
 | `/var/log/qdrant.log` | qdrant log |
 | `/opt/venv/bin/python` | runtime that runs the MCP + qdrant scripts |
 | `/a0/usr/workdir/MPG_DBSS_E2E_V03/MPG_DBSS_SOURCE_AUTHORITY_CONTROLLED_FIXTURE_v03.csv` | SOT fixture for seeding |
-| `/a0/usr/workdir/dbss_gap_report/CKT-OC-047_...v01_DRAFT.md` | design context (cited in ADR 0001) |
+| `/a0/usr/skills/multi-angle-gap-analysis/SKILL.md` | canonical six-field structure skill (NEW this session) |
+| `/a0/usr/skills/manifest.md` line 23 | skill registration (NEW this session) |
+
+---
 
 ## 6. Live runtime state
 
-- **Qdrant binary:** 1.19.1, running natively at `:6333` HTTP + `:6334` gRPC
-- **Config path (in container):** `/opt/qdrant/config/production.yaml` (storage_path = `/opt/qdrant/storage`)
-- **PID:** check with `pgrep -f /usr/local/bin/qdrant` (was 435725 at session break)
-- **No collections created yet** (migrations/apply_migrations.py not yet run)
-- **No points ingested yet** (bootstrap seed not yet run)
+- **Postgres:** pgvector/pgvector:pg18 (system-installed apt), 7 migrations applied via `data-layer-postgres/lib/install.sh install`.
+- **Redis cache layer (data-layer-redis, port 6380):** NOT currently running on this host. Compose pin is `redis:7.2-alpine` (BSD-3); live system has no data-layer-redis container.
+- **Redis native (port 6379, inside falkordb-test-sandbox):** Redis 8.0.6, RSALv2/SSPLv1/AGPLv3 per `/usr/share/doc/redis/copyright`. **License hazard** for any commercial hosting — see Phase 1.
+- **FalkorDB:** v4.20.4, port 6389 RESP (loadable module on top of redis-server), 2 cypher migrations applied.
+- **Qdrant:** v1.19.1, native binary, listening on `0.0.0.0:6333` HTTP + `0.0.0.0:6334` gRPC, storage `/opt/qdrant/storage`, `.qdrant-initialized` marker present in both `/a0/usr/projects/data-layer/data-layer-qdrant/` and `/a0/usr/projects/data-layer/`.
+- **Universal MCP:** 21 tools (14 postgres + 7 qdrant rag.*), stdio transport, `MCP_INSTALL_MODE` gate enforced on `rag.ingest.*` + future `feedback.*` tools.
+- **Dual-write cache + publish hook:** `lib/write_through.py` (347 lines) + `lib/redis_publish_hook.py` (308 lines); only `DATA_LAYER_DW_SESSION_PRESENCE=true` is currently active (P2.1 gates the other five).
 
-To restart Qdrant if it dies:
-```bash
-nohup /usr/local/bin/qdrant --config-path /opt/qdrant/config/production.yaml >/var/log/qdrant.log 2>&1 &
-```
+---
 
 ## 7. Open blockers / user decisions needed
 
-None critical. All architecture decisions were captured before the
-session stalled. The remaining work is mechanical.
+1. **License posture** (urgent; blocks external distribution). Pick one of: AGPL-3.0 + commercial offer (recommended); Apache-2.0 (max permissive); BSL/delayed-OSS (closed for X years then opens). Apply to all 6 repos.
+2. **Redis swap** (high). Confirm whether to swap native 8.0.6 → Valkey 8.x (or redis:7.2-alpine) AND update `data-layer-redis/Dockerfile` to `valkey/valkey:8-alpine`.
+3. **Phase 0 gating** (medium). Confirm whether to run the 9 probe batches (P0.1..P0.9) BEFORE any Phase 1+ mutation lands. The [run-completion-contract] directive says yes; the user should confirm.
+4. **Lawyer review** (high). Engage an SSPL/AGPL/RSAL-savvy lawyer for a 2-hour review covering (a) offering language, (b) SSPL/AGPL/RSAL posture, (c) LGPL relinking for psycopg, (d) trademark selection, (e) dual-license decision.
 
-If new questions arise, the user has indicated they prefer:
-- **Read-only by default** for MCP-exposed tools; writes are managed
-  by the documented install/seed scripts.
-- **Framework-agnostic design** — no Agent Zero imports inside the
-  Qdrant/MCP code.
-- **Reproducible + idempotent** migrations and seed scripts.
+---
 
-## 8. TODO list state (40 tasks total)
+## 8. Lessons learned this session
 
-- ✅ **9 completed**: pre-flight, skeleton, .a0proj, Docker assets,
-  bootstrap+lib, requirements+tests, migrations+ADR, GAP-2
-  (qdrant-client), GAP-4 (Qdrant bring-up)
-- 🔵 **1 in_progress (stale)**: task 8 (git init) — `set -e` killed
-  the script before completion; the files are written but `.git/`
-  does not exist yet
-- ⚪ **30 pending**: tasks 9–24, 26–32, plus GAP-1, GAP-3, GAP-5, GAP-8
-- ⏸️ **0 BLOCKED** (none — earlier Docker + gh blocks were resolved:
-  Qdrant runs natively, and gh repo create is approved under option 2a)
+- **Don't use bash heredocs inside `parallel` `tool_calls`** (carryover from prior HANDOFF §9). The JSON escape pass corrupts Python source content (`\\n` becomes `\\\\n`). Use `text_editor write` for source files, or write heredocs via sequential terminal commands.
+- **License posture is the single biggest gate before any external sharing.** The empirical check took ~5 minutes with `importlib.metadata` + upstream LICENSE files + Debian copyright. Running it before this session would have prevented the Redis-8.0.6 hazard from being deployed to begin with.
+- **Stress / edge / boundary characterization must come BEFORE adding new capabilities.** The [run-completion-contract] directive is correct — without it, every AIML/PM mutation is built on uncharacterized substrate, and a Phase 0 finding (e.g., dual-write lag > TTL) can invalidate downstream design. See Phase 0 in §4.
+- **The canonical six-field structure (problem → target or root cause → mutation → reasoning → expected result → completion validation) is now a skill.** Future analyses that ask "from a few different angles", "gap analysis", or "stakeholder review" will inherit this structure via the `multi-angle-gap-analysis` skill — no need to re-explain it each time.
+- **The data-layer code is exclusively Casey's.** No LICENSE file = All Rights Reserved = Casey can host a service legally (no distribution triggered) but cannot redistribute a binary to a third party. The cleanest monetization path is: (a) pick a license, (b) bundle NOTICE, (c) ship hosted subscription (not binary).
+- **Don't trust compose pins for the live state.** The compose pin is `redis:7.2-alpine` (BSD-3); the live binary is Redis 8.0.6 (RSAL/SSPL/AGPL). They are not the same.
 
-Full task list is in the `todo_tool` project `data-layer-qdrant-build`.
+---
 
-## 9. Lessons learned / notes for future sessions
+## 9. Compact timeline + critical path
 
-- **Don't use bash heredocs inside `parallel` `tool_calls`.** The JSON
-  escape pass corrupted python source content (`\\n` became
-  `\\\\n`). Use `text_editor write` for source files, or write the
-  heredoc via a sequential terminal command.
-- **The container is the host `hermes`.** `hermes` resolves to
-  `127.0.1.1` via systemd-resolved; SSH-ing `hermes` from inside
-  the container loops back to itself and fails. Skip the SSH.
-- **Docker is unavailable; binary install is the working path.**
-  `apt-get install qdrant` returned "Unable to locate package"; the
-  release tarball is at
-  `https://github.com/qdrant/qdrant/releases/download/v1.19.1/qdrant-x86_64-unknown-linux-gnu.tar.gz`.
-- **Embedding model is local via `sentence-transformers`** (not the
-  `fastembed` short-form). Until a real embedder is wired into
-  `lib/seed.py`, points are uploaded with placeholder zero-vectors.
-  Smoke tests pass; semantic search returns no hits until the
-  embed-on-demand pipeline is built (follow-up ADR).
-- **`data-layer-qdrant` is local-only until `gh repo create` runs.**
-  Submodule gitlink in the umbrella will stay un-resolved until
-  Phase F completes.
+| Phase | Items | Parallelism | Estimated effort |
+|---|---|---|---|
+| 0 — probes | 9 batches | multiple scripts in parallel | ~1 day to author + run |
+| 1 — legal | 9 items | LICENSE + Redis swap + Dockerfile pin are independent | ~2 days |
+| 2 — adoption | 9 items | most independent after Phase 0 | ~3 days |
+| 3 — capability | 7 items | P3.1 → P3.2 → P3.3 chain | ~5 days |
+| 4 — distribution | 5 items | parallel | ~3 days |
+| 5 — commercial/scale | 5 items | partial dependency on Phase 0 + 1 | ~5 days |
 
-## 10. Native wire-up (single-host, no Docker)
+**Critical path:** P0.1..P0.9 probes → P1.1 LICENSE → P1.2/1.3 Redis swap → P2.* adoption → P3.* capability → P4.* distribution → P5.* commercial. Total ~17 days of focused work for the full stack to be shippable + revenue-ready.
 
-This section is the canonical runbook for bringing up the full
-data-layer stack natively on a single host when Docker is not
-available (e.g. the Agent Zero container or a CI runner). It was
-exercised on 2026-09-15 against Kali 24.04 inside the Agent Zero
-container.
+---
+
+## 10. Native wire-up status (carryover from prior HANDOFF §10, lightly updated)
 
 ### 10.1 Apt install (postgres + redis)
 
 ```bash
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \n    postgresql postgresql-contrib postgresql-18-pgvector redis-server jq
-# If dpkg was interrupted mid-install (likely under container init):
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    postgresql postgresql-contrib postgresql-18-pgvector redis-server jq
+# If dpkg was interrupted mid-install:
 DEBIAN_FRONTEND=noninteractive dpkg --configure -a
 ```
 
 ### 10.2 Start postgres + apply migrations
 
 ```bash
-# Start the cluster on the default :5432
 pg_ctlcluster $(pg_lsclusters -h | tail -1 | awk '{print $1 "/" $2}') start
-# Default pg_hba.conf uses scram-sha-256 on 127.0.0.1/::1. For the
-# DSN-with-password wire-up, swap host auth to md5 for postgres user:
 sed -i 's/^host    all             all             127.0.0.1\/32            scram-sha-256/host    all             all             127.0.0.1\/32            md5/' /etc/postgresql/*/main/pg_hba.conf
 sed -i 's/^host    all             all             ::1\/128                 scram-sha-256/host    all             all             ::1\/128                 md5/' /etc/postgresql/*/main/pg_hba.conf
 pg_ctlcluster $(pg_lsclusters -h | tail -1 | awk '{print $1 "/" $2}') reload
-# Set postgres user password to match the DSN. Use a SQL file via
-# `su - postgres -c "psql -f"` to avoid bash nested-quote issues:
 cat > /tmp/alter_pg.sql <<'SQLEOF'
 ALTER USER postgres WITH PASSWORD 'postgres_local_wireup';
 ALTER USER postgres WITH SUPERUSER;
 SQLEOF
 su - postgres -c 'psql -f /tmp/alter_pg.sql'
-# Apply the 7 migrations (uses DATA_LAYER_POSTGRES_DSN from .env):
-cd /a0/usr/projects/data-layer/data-layer-postgres
-bash lib/install.sh install
+cd /a0/usr/projects/data-layer/data-layer-postgres && bash lib/install.sh install
 ```
 
-### 10.3 Start redis
+### 10.3 Start redis (data-layer-redis on port 6380)
 
 ```bash
 mkdir -p /var/lib/redis /var/log/redis
-nohup redis-server --daemonize yes --bind 127.0.0.1 --port 6379 \n    --dir /var/lib/redis --logfile /var/log/redis/redis.log
-redis-cli ping   # expect: PONG
+nohup redis-server --daemonize yes --bind 127.0.0.1 --port 6380 \
+    --dir /var/lib/redis --logfile /var/log/redis/redis.log
+redis-cli -p 6380 ping   # expect: PONG
 cd /a0/usr/projects/data-layer/data-layer-redis && bash lib/install.sh verify
 ```
 
+**Note:** port 6380 is NOT currently running on this host. The only
+Redis instance live here is 8.0.6 on port 6379 inside falkordb-test-sandbox.
+
 ### 10.4 Native qdrant
 
-Already covered earlier in this HANDOFF — `apt` doesn't ship qdrant;
-the working path is the GitHub release tarball at
+Already covered in prior HANDOFF — `apt` doesn't ship qdrant; the
+working path is the GitHub release tarball at
 `https://github.com/qdrant/qdrant/releases/download/v1.19.1/qdrant-x86_64-unknown-linux-gnu.tar.gz`,
 unpacked into `/usr/local/bin/qdrant`, config at
 `/opt/qdrant/config/production.yaml`, storage at `/opt/qdrant/storage`.
 
 ### 10.5 Native falkordb
 
-FalkorDB is NOT a standalone binary — it is a Redis loadable
-module. The official image builds it from source and packages the
-artifact as `falkordb.so` (~50 MB) under `/var/lib/falkordb/bin/`.
-Recent FalkorDB releases ship Docker images only (the
-`https://github.com/FalkorDB/FalkorDB/releases/download/v1.2.0/falkordb-linux-x86_64.tar.gz`
-URL in `lib/falkordb.sh` returns HTTP 404 — the URL pattern is
-stale and the asset is no longer published).
+FalkorDB is NOT a standalone binary — it is a Redis loadable module.
+The wire-up path on a host without Docker is to extract the binary out
+of the official Docker image via the Docker registry HTTP API.
+Script committed at `data-layer-falkordb/lib/docker_image_install.sh`.
 
-The wire-up path on a host without Docker is to extract the
-binary out of the official Docker image via the Docker
-registry HTTP API. The script that does this is committed at
-`data-layer-falkordb/lib/docker_image_install.sh`.
-
-Steps (verified working on 2026-09-15 against FalkorDB 4.20.4):
-
-1. `apt install -y redis-server` (already done in 10.3).
-2. `bash data-layer-falkordb/lib/docker_image_install.sh`
-   - Acquires an anonymous Docker registry bearer token via
-     `auth.docker.io/token?service=registry.docker.io&scope=repository:falkordb/falkordb:pull`.
-   - Fetches the manifest list (`application/vnd.docker.distribution.manifest.list.v2+json`),
-     picks the linux/amd64 entry, fetches that platform-specific
-     manifest, then iterates its 18 layers downloading each one
-     and grepping for `var/lib/falkordb/bin/falkordb.so`.
-   - Extracts the matching layer into `/var/lib/falkordb/bin/`
-     and also installs `run.sh` (as the `/usr/local/bin/falkordb`
-     wrapper) + `gen-certs.sh` (TLS helper).
+Steps (verified 2026-09-15 against FalkorDB 4.20.4):
+1. `apt install -y redis-server` (already done).
+2. `bash data-layer-falkordb/lib/docker_image_install.sh` — extracts `falkordb.so` (~50 MB) into `/var/lib/falkordb/bin/` and installs `run.sh` as `/usr/local/bin/falkordb`.
 3. Start the server: `redis-server --loadmodule /var/lib/falkordb/bin/falkordb.so --port 6389 --dir /var/lib/falkordb/data`
-   - falkordb rides on redis-server as a loadable module; the
-     default RESP port (6379) collides with the redis cache layer
-     so the wire-up uses 6389.
-4. Apply the 2 cypher migrations:
-   `DATA_LAYER_FALKORDB_URL=redis://127.0.0.1:6389 bash data-layer-falkordb/lib/install.sh install`
-5. Verify end-to-end:
-   - `redis-cli -p 6389 PING` → PONG
-   - `redis-cli -p 6389 MODULE LIST` shows `graph 42004` + `vectorset`
-   - `redis-cli -p 6389 GRAPH.QUERY data_layer "CALL db.labels() YIELD label RETURN label"` → returns label list
-   - `redis-cli -p 6389 GRAPH.QUERY data_layer "MATCH (n) RETURN count(n)"` → returns row count
-   - log line: `Starting up FalkorDB version 4.20.4.` + `Module 'graph' loaded from /var/lib/falkordb/bin/falkordb.so` + `Ready to accept connections tcp`
+4. Apply migrations: `DATA_LAYER_FALKORDB_URL=redis://127.0.0.1:6389 bash data-layer-falkordb/lib/install.sh install`
+5. Verify end-to-end: `redis-cli -p 6389 MODULE LIST` shows `graph 42004` + `vectorset`; `redis-cli -p 6389 GRAPH.QUERY data_layer "CALL db.labels() YIELD label RETURN label"` returns label list.
 
 ### 10.6 Canonical MCP end-to-end check
 
-With all 4 backends wired natively:
-
 ```bash
 set -a; source /a0/usr/projects/data-layer/.env; set +a
-DATA_LAYER_TEST_DSN="$DATA_LAYER_POSTGRES_DSN" \n    /opt/venv/bin/python -m unittest mcp.tests.test_server -v
-# Expect: 31+ tests, all pass, zero skipped. Previously the 4
-# DbTests + 1 SubprocessSmokeTests skipped cleanly because the
-# DATA_LAYER_TEST_DSN pointed at an unreachable host. Once set to
-# the local wire-up postgres, those tests now exercise the live schema.
+DATA_LAYER_TEST_DSN="$DATA_LAYER_POSTGRES_DSN" \
+    /opt/venv/bin/python -m unittest mcp.tests.test_server -v
+# Expect: 31+ tests, all pass, zero skipped
 ```
 
-### 10.7 Known gaps after native wire-up
+### 10.7 Known gaps after native wire-up (carryover; updated)
 
-- FalkorDB binary install: blocked by 404 on the v1.2.0 tarball.
-  The remaining path is image-layer extraction (see 10.5 step 2).
-- `data-layer-postgres/lib/install.sh` apply_agent_zero_grants step
-  uses psycopg parameter binding for `CREATE ROLE ... PASSWORD $1`
-  which is invalid SQL. Workaround applied via SQL heredoc in 10.2.
-  Long-term fix: use `psycopg.sql.SQL(...) % sql.Literal(password)`
-  for safe password inline.
-- Qdrant semantic search returns random nearest neighbors because
-  the seed uses placeholder `[0.0] * 768` vectors. Wire the
-  `sentence-transformers/all-mpnet-base-v2` embedder via
-  `data-layer-qdrant/lib/embed.py` (scaffolded; ADR-required for
-  full integration).
-- Email pipeline: postgres 0007_emails.sql is applied but the
-  `data-layer-qdrant/lib/mail_replay.py` mail-source driver is
-  scaffolded only. Wire a live SMTP listener for production use.
+- FalkorDB binary install: blocked by 404 on the v1.2.0 tarball. Path is image-layer extraction (see 10.5).
+- `data-layer-postgres/lib/install.sh` apply_agent_zero_grants step uses psycopg parameter binding for `CREATE ROLE ... PASSWORD $1` which is invalid SQL. Workaround applied via SQL heredoc in 10.2. Long-term fix: use `psycopg.sql.SQL(...) % sql.Literal(password)` for safe password inline.
+- Qdrant semantic search returns random nearest neighbors because the seed uses placeholder `[0.0] * 768` vectors. Wire the `sentence-transformers/all-mpnet-base-v2` embedder via `data-layer-qdrant/lib/embed.py`.
+- Email pipeline: postgres 0007_emails.sql applied; `data-layer-qdrant/lib/mail_replay.py` mbox import driver is scaffolded. Live IMAP/SMTP listener does not exist yet — Phase 3 P3.7.
+
+---
+
+## 11. How to resume (next agent)
+
+1. **Read first:** `/a0/usr/projects/data-layer/HANDOFF.md` (this file) + `/a0/usr/projects/data-layer/docs/completion-audit-2026-09-15.md` + `/a0/usr/projects/data-layer/README.md` + `/a0/usr/projects/data-layer/docs/architecture.md`.
+2. **Confirm with the principal:** the four open blockers in §7 (license posture, Redis swap, Phase 0 gating, lawyer review).
+3. **If Phase 0 gating approved:** start with P0.1 SEC-1 SQL injection red team (cheapest, biggest blocker if failed). Sequence per §4 Phase 0 table.
+4. **If Phase 0 gating skipped:** start with P1.1 LICENSE (urgent). Then P1.2 Redis swap. Then P1.3 Dockerfile pin.
+5. **In all cases:** load the `multi-angle-gap-analysis` skill (already at `/a0/usr/skills/multi-angle-gap-analysis/SKILL.md`) before doing any further gap analysis. Use the canonical six-field structure for every item.
+6. **Update this HANDOFF.md** when meaningful state changes land. Append to §1 (status snapshot) + §6 (live runtime state) + §10 (native wire-up) at minimum.
+
+---
+
+## 12. Cross-references
+
+- `/a0/usr/projects/data-layer/README.md` — umbrella overview, submodule listing, services table.
+- `/a0/usr/projects/data-layer/docs/architecture.md` — submodule relationship diagram; cross-layer email → postgres → qdrant flow.
+- `/a0/usr/projects/data-layer/docs/bootstrap-flow.md` — what happens when `bootstrap` runs.
+- `/a0/usr/projects/data-layer/docs/completion-audit-2026-09-15.md` — raw 84% completion audit with per-submodule matrix.
+- `/a0/usr/projects/data-layer/.a0proj/instructions/project-isolation.md` — workspace contract for the umbrella.
+- `/a0/usr/skills/multi-angle-gap-analysis/SKILL.md` — canonical six-field structure (problem / target / mutation / reasoning / expected / validation).
+- `/a0/usr/skills/manifest.md` line 23 — skill registration.
