@@ -48,11 +48,8 @@ knowledge_import.json
 **/.application-built
 **/.service-initialized
 
-# Local working copy of data-layer-qdrant (lives in this umbrella's
-# tree as a development convenience; the canonical copy is the
-# sibling repo `github.com/NovaAI-innovation/data-layer-qdrant`).
-# Fresh clones get the canonical copy via `git submodule update --init`
-# (see .gitmodules). The local working copy is gitignored here so the
-# umbrella commit does not accidentally embed 25 files + its own .git/.
-/data-layer-qdrant/
-**/data-layer-qdrant/
+# Submodule working trees are tracked via the .gitmodules file and the
+# gitlink (mode 160000) registered in the umbrella index. Do NOT
+# ignore the submodule directories themselves here — that would
+# suppress pointer updates and break fresh clones via `git submodule
+# update --init`.

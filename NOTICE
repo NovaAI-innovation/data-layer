@@ -1,0 +1,115 @@
+NOTICE — third-party attributions
+
+This `data-layer` umbrella and its five submodules link against,
+embed, or interoperate with the following open-source projects.
+This NOTICE file lists each project's license and copyright holders,
+preserving the attribution chain required by each license.
+
+For the binding canonical license text of each project, see the URL
+listed next to the project name.
+
+----------------------------------------------------------------------
+Backing services (submodule repos)
+
+- PostgreSQL (BSD-style PostgreSQL License)
+  Copyright (c) 1996-2026, PostgreSQL Global Development Group
+  https://www.postgresql.org/about/licence/
+  Used in: data-layer-postgres
+
+- pgvector (PostgreSQL License, BSD-style)
+  Copyright (c) 2020-2026, pgvector authors
+  https://github.com/pgvector/pgvector/blob/master/LICENSE
+  Used in: data-layer-postgres
+
+- Valkey (BSD-3-Clause)
+  Copyright (c) Valkey project contributors
+  https://github.com/valkey-io/valkey/blob/unstable/LICENSE.md
+  Used in: data-layer-redis (FROM valkey/valkey:8-alpine)
+
+- Redis (BSD-3-Clause) [fallback pin]
+  Copyright (c) Redis Ltd. and contributors
+  https://github.com/redis/redis/blob/unstable/LICENSE
+  Used in: data-layer-redis (fallback FROM redis:7.2-alpine)
+
+- FalkorDB (SSPL v1)
+  Copyright (c) FalkorDB project contributors
+  https://www.mongodb.com/licensing/server-side-public-license
+  Used in: data-layer-falkordb
+  NOTE: SSPL v1 is NOT an OSI-approved license. Service-side
+  distribution triggers source-disclosure obligations. See the
+  data-layer-falkordb LICENSE file for the binding summary.
+
+- Qdrant (Apache License, Version 2.0)
+  Copyright (c) Qdrant project contributors
+  https://github.com/qdrant/qdrant/blob/master/LICENSE
+  Used in: data-layer-qdrant
+
+----------------------------------------------------------------------
+Python clients (used by data-layer-adapters MCP)
+
+- psycopg (BSD-3-Clause)
+  Copyright (c) 2020-2026, Federico Di Gregorio and contributors
+  https://github.com/psycopg/psycopg/blob/master/LICENSE.txt
+
+- asyncpg (Apache License, Version 2.0)
+  Copyright (c) 2016-Present MagicStack Inc.  http://magic.io
+  https://github.com/MagicStack/asyncpg/blob/master/LICENSE
+
+- redis-py (MIT)
+  Copyright (c) 2022-2026, Redis Inc.
+  https://github.com/redis/redis-py/blob/master/LICENSE
+
+- qdrant-client (Apache License, Version 2.0)
+  Copyright (c) 2021-2026, Qdrant project contributors
+  https://github.com/qdrant/qdrant-client/blob/master/LICENSE
+
+- fastembed (Apache License, Version 2.0)
+  Copyright (c) 2023-2026, Qdrant project contributors
+  https://github.com/qdrant/fastembed/blob/master/LICENSE
+
+----------------------------------------------------------------------
+Embedding models (loaded by fastembed)
+
+- sentence-transformers/all-mpnet-base-v2 (Apache License, Version 2.0)
+  Copyright (c) 2021 UKPLab and contributors
+  https://huggingface.co/sentence-transformers/all-mpnet-base-v2
+  Note: bundled model artifact files (config.json, vocab.txt,
+  tokenizer.json, model.safetensors, modules.json) are stored under
+  data-layer-qdrant/docs/decisions/0001-rag-sot-architecture.md per
+  ADR 0001 and audited for license compatibility (pending task
+  1f9236bf — fastembed bundled model artifacts audit).
+
+----------------------------------------------------------------------
+Frameworks and protocol libraries
+
+- Agent Zero (Apache License, Version 2.0)
+  Copyright (c) Agent Zero framework contributors
+  https://github.com/agent0ai/agent-zero
+
+- Model Context Protocol — Python SDK (MIT)
+  Copyright (c) 2024 Anthropic and contributors
+  https://github.com/modelcontextprotocol/python-sdk/blob/main/LICENSE
+
+- LiteLLM (MIT)
+  Copyright (c) 2023-2026, BerriAI and contributors
+  https://github.com/BerriAI/litellm/blob/main/LICENSE
+
+- Flask (BSD-3-Clause)
+  Copyright (c) 2010-2026 Pallets
+  https://github.com/pallets/flask/blob/main/LICENSE.txt
+
+- Alpine.js (MIT)
+  Copyright (c) 2015-2026 Caleb Porzio and contributors
+  https://github.com/alpinejs/alpine/blob/main/LICENSE
+
+----------------------------------------------------------------------
+Audit trail
+
+- 2026-09-16: Initial NOTICE generated after Phase 0 docs + P0.1 +
+  LICENSE file creation + Valkey 8.x swap + MCP registration dedupe
+  (umbrella commit 0d2d0aa).
+- Review cadence: bump on any new direct dependency or service-image
+  swap.
+
+----------------------------------------------------------------------
+End of NOTICE.
