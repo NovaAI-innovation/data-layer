@@ -165,8 +165,8 @@ else
     max_wait=90
     while (( elapsed < max_wait )); do
       healthy=$(cd "$ROOT_DIR" && docker compose ps 2>/dev/null | grep -c "healthy" || true)
-      if (( healthy >= 3 )); then
-        ok "services healthy ($healthy/4)"
+      if (( healthy >= 4 )); then
+        ok "services healthy ($healthy/5)"
         break
       fi
       sleep 5

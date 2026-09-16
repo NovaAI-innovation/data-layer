@@ -5,8 +5,8 @@
 # Aggregates pass/fail into a table; exits non-zero if any submodule fails.
 #
 # Usage:
-#   bash tests/smoke_test.sh           # check all 4 submodules
-#   bash tests/smoke_test.sh --fast    # skip adapter wait (faster)
+#   bash tests/smoke_test.sh           # check all 5 submodules
+#   bash tests/smoke_test.sh --fast    # skip compose wait (faster)
 #
 # Timeout per component: 30s
 set -euo pipefail
@@ -61,6 +61,7 @@ run_check() {
 run_check "postgres"  "data-layer-postgres"  "verify"
 run_check "redis"     "data-layer-redis"     "verify"
 run_check "falkordb"  "data-layer-falkordb"  "verify"
+run_check "qdrant"    "data-layer-qdrant"    "verify"
 
 # Adapter collection check
 TOTAL=$((TOTAL + 1))
@@ -114,7 +115,7 @@ echo ""
 echo "=== data-layer smoke test results ==="
 printf "  %-12s %s\n" "COMPONENT" "STATUS"
 printf "  %-12s %s\n" "----------" "-------"
-for name in postgres redis falkordb adapters compose; do
+for name in postgres redis falkordb qdrant adapters compose; do
   printf "  %-12s %s\n" "$name" "${RESULTS[$name]:-SKIP}"
 done
 echo ""
