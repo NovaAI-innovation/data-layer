@@ -409,3 +409,183 @@ DATA_LAYER_TEST_DSN="$DATA_LAYER_POSTGRES_DSN" \
 - `/a0/usr/projects/data-layer/.a0proj/instructions/project-isolation.md` — workspace contract for the umbrella.
 - `/a0/usr/skills/multi-angle-gap-analysis/SKILL.md` — canonical six-field structure (problem / target / mutation / reasoning / expected / validation).
 - `/a0/usr/skills/manifest.md` line 23 — skill registration.
+
+
+## 13. CURRENT SESSION HANDOFF (2026-09-16)
+
+Pause-and-resume artefact created mid-session while the docker-compose stack
+wiring is being finalised. Captures: live state, decisions this session,
+outstanding work, cross-layer integration map, audit trail, next-agent picks.
+
+### 13.1 Live runtime state (use these while wiring the compose stack)
+
+These four services are running **natively** on this host as **temporary
+placeholders** so the data layer (and the MCP that uses it) keeps working
+while the docker-compose stack is being wired up. They are NOT the production
+deployment — that target is the docker-compose stack from §13.3.1.
+
+| Service | Port | PID | Binary | Purpose during wiring |
+|---|---|---|---|---|
+| `postgres-18/main` | 5432 | 78925 | `/usr/lib/postgresql/18/bin/postgres` | SOT (14 business tables, 7 migrations, agent_zero role+db+grants) |
+| `valkey-server 9.1.1-1` | 6379 | 78948 | `/usr/bin/valkey-server` | BSD-3 active fork of Redis 7.2 (cache layer; replaces redis:7.2-alpine per HANDOFF §3.1) |
+| `redis-server 8.0.6 + falkordb.so` | 6389 | 78958 | `/usr/bin/redis-server --loadmodule /var/lib/falkordb/bin/falkordb.so` | FalkorDB 4.20.4 loaded as a Redis module (graph layer; Valkey 9.x rejects the module so the standalone redis-server 8.0.6 is used) |
+| `qdrant 1.19.1` | 6333 (HTTP) + 6334 (gRPC) | 78973 | `/usr/local/bin/qdrant/qdrant` | Vector/RAG (Apache-2.0; both `mpg_source_authority_documents` + `mpg_emails` collections present) |
+| `az-retrieval-mcp` | stdio JSON-RPC | (lazy) | `/a0/usr/mcp/server.py` | 21 tools (14 postgres-backed + 7 rag-backed); registered globally in `/a0/usr/settings.json` |
+
+**MCP end-to-end against the temp services** (last run, 2026-09-16 15:28):
+
+```
+Ran 36 tests in 0.445s
+OK
+```
+
+(SmokeTests + DbTests + RagSmokeTests + SubprocessSmokeTests, including
+governance 14+7, safety guards with verb refusal + MCP_INSTALL_MODE gate,
+SOT invariants, allowlist enforcement, parameterised queries, and the live
+JSON-RPC subprocess handshake.)
+
+### 13.2 Decisions made this session
+
+1. **Native install path is the actual long-term plan** — when the user picked
+   option "a" from a previous menu, the response confirmed the working stack is
+   the four native services on this host. Path C (production docker-compose
+   stack) is the *future* target; the temp services are the *now*.
+2. **Agent Zero is wired into the compose stack as the 6th service** — three
+   commits (94871f5 + 8880170 + 9ff4400) add `ADAPTER_ROLE=agent-zero` to the
+   `data-layer-adapters` image + the `agent-zero:` service definition in
+   `docker-compose.yml` + the matching row in `docs/architecture.md`. The A0
+   web UI itself continues to run OUTSIDE the compose stack (this
+   conversation's A0 process); the compose service only wires the
+   database row + plugin.
+3. **docker-compose build is blocked on this host** — buildkit fails with
+   bind-mount `operation not permitted` because `dockerd` here runs without
+   `CAP_SYS_ADMIN` (CapEff = `0x00000000a80425fb`). The cleanest in-host
+   workaround is `apt install podman podman-compose` (rootless slirp4netns
+   builds don't need privileged mount namespaces), or build images
+   externally and `docker load -i *.tar`. Both paths were started; neither
+   was completed because the user redirected to create this handoff first.
+4. **Per-submodule licence posture is final** — HANDOFF §3.1 + LICENSE files
+   in all 6 repos (umbrella + 5 submodules): BSD-3 (postgres + redis +
+   adapters + umbrella); PostgreSQL License (postgres submodule);
+   BSD-3 with Valkey/Redis lineage (redis submodule); SSPL v1 (falkordb —
+   non-OSI; commercial license may be required for service-side use);
+   Apache-2.0 (qdrant).
+5. **Phase 0 docs are complete** — 6 docs (2,213 lines):
+   `docs/SUBMODULE_OWNERSHIP.md` + 4× `SCHEMAS.md` (postgres/redis/falkordb/
+   qdrant) with every column documented along the 5 dimensions (purpose /
+   value / retrieval impact / mutation-transformation / queries enabled)
+   + `data-layer-adapters/TOOLS_AND_WIRING.md` covering all 21 MCP tools.
+
+### 13.3 Outstanding work
+
+#### 13.3.1 docker-compose stack — Path C (in-progress, blocked)
+
+| # | Item | Effort | Status |
+|---|---|---|---|
+| 1 | Resolve build blocker for this host (podman / external-host-build-and-load) | 30-60 min | **NOT STARTED** (user paused) |
+| 2 | First `compose up -d --build` + 6-service healthcheck + MCP e2e against compose-managed backends | 2-3 h | pending #1 |
+| 3 | Traefik v3 + mkcert TLS for postgres (5432) + qdrant (6333) + A0 webui (50001) | 1-2 h | pending #2 |
+| 4 | Replace `.env` passwords with `secrets:` files (postgres_password.txt, agent_zero_password.txt mounted at `/run/secrets/...`) | 30-60 min | pending #2 |
+| 5 | `mem_limit` / `cpus` / `pids_limit` + `logging:` driver config (json-file with rotation) per service | 30 min | pending #2 |
+| 6 | Named-volume backup script: `pg_dumpall` + qdrant snapshot + falkordb RDB dump → `/opt/data-layer/backups/YYYY-MM-DD/` | 1-2 h | pending #2 |
+| 7 | Operator runbook: `make up`, `make down`, `make logs`, `make ps`, `make backup`, `make restore`, `make shell-postgres` | 1 h | pending #2 |
+| 8 | Sanity probe (separate compose profile `sanity`): boots compose, hits MCP end-to-end, asserts 36/36, exits 0 | 30-60 min | pending #2 |
+| 9 | `git tag v0.1.0 && git push --tags origin main` in all 6 repos | 5 min per repo | pending #2 |
+
+#### 13.3.2 P0.2..P0.9 boundary probes (still pending)
+
+Designed but not run per HANDOFF §4: P0.2 (auth bypass), P0.3 (tenant-prefix
+collision), P0.4 (schema invariants), P0.5 (idempotency), P0.6
+(pool exhaustion), P0.7 (throughput), P0.8 (scale), P0.9 (chaos). P0.1
+(SQL injection) already passed this session.
+
+#### 13.3.3 Strategic decisions still awaiting principal input
+
+- **Product name + trademark posture** (todo `5ad18725`).
+- **CLA / DCO formalisation** (todo `f6dbd76a` — drafted in
+  `CONTRIBUTING.md`; awaiting legal review).
+- **SSPL v1 legal review for falkordb** (todo `719aa6eb` — non-OSI; commercial
+  license may be required for service-side use cases).
+
+### 13.4 Cross-layer integration map (file → owner)
+
+| Concern | File | Owner |
+|---|---|---|
+| Umbrella wiring | `docker-compose.yml` | umbrella (now 6 services) |
+| Schema SOT (column-level 5-dim spec) | `data-layer-postgres/SCHEMAS.md` | postgres submodule |
+| Cache contract | `data-layer-redis/SCHEMAS.md` | redis submodule |
+| Graph schema + Cypher migrations | `data-layer-falkordb/SCHEMAS.md` | falkordb submodule |
+| Vector/RAG collection payloads | `data-layer-qdrant/SCHEMAS.md` | qdrant submodule |
+| MCP server + 21 tools | `data-layer-adapters/TOOLS_AND_WIRING.md` + `data-layer-adapters/mcp/server.py` | adapters submodule |
+| Cross-submodule boundaries | `docs/SUBMODULE_OWNERSHIP.md` | umbrella |
+| Architecture diagram | `docs/architecture.md` | umbrella (6-service table) |
+| Bootstrap dispatch | `bootstrap` + `install.sh` | umbrella |
+| A0 wiring (webui → adapters) | `data-layer-adapters/agent-zero/{bootstrap,lib,plugin,seeds}` | adapters submodule |
+| MCP registry (global) | `/a0/usr/settings.json` (line mcp_servers) | Agent Zero framework |
+| Phase 0 probes | `HANDOFF.md` §4 (designed) + `tests/probe_*.py` (P0.1 only today) | umbrella |
+
+### 13.5 Audit trail for changes
+
+#### 13.5.1 Local commits (unpushed)
+
+| Repo | Commit | Subject |
+|---|---|---|
+| `data-layer-adapters` | `94871f5` | `feat(adapters): add agent-zero role to docker image` |
+| umbrella | `8880170` | `feat(umbrella): wire agent-zero into docker-compose as 6th service` |
+| umbrella | `9ff4400` | `docs(architecture): add agent-zero compose service to the service table` |
+
+3 commits ahead of `origin/main` (umbrella `+2`, adapters `+1`). Push
+requires explicit user authorization per AGENTS.md "Ask before: Creating
+commits or pushing branches."
+
+#### 13.5.2 Earlier session commits already pushed to origin
+
+| Commit | Subject |
+|---|---|
+| `262b8db` | `feat(umbrella): qdrant coverage in tests/smoke_test.sh + scripts/install.sh healthcheck gate` |
+| `096f189` | `docs(umbrella): refresh HANDOFF.md §11 + add .a0proj/instructions/project-isolation.md to tracked set` |
+| `07b0fde` | `chore(umbrella): fix .gitignore + HANDOFF.md §11 + project.json bump` |
+| `3b4c422` | `chore(umbrella): CHANGELOG.md + .a0proj/project.json bump + HANDOFF.md §11 resume refresh` |
+| `0d83933` | `docs(umbrella): refresh docs/architecture + docs/bootstrap-flow + docs/README` |
+| `3bfe93f` | `docs(umbrella): refresh README + AGENTS + docs/services/README` |
+| `b5f3175` | `feat(umbrella): HANDOFF.md status refresh + fastembed license audit + relocate TOOLS_AND_WIRING.md` |
+| `c3e08de` | `feat(umbrella): TOOLS_AND_WIRING.md + NOTICE + CONTRIBUTING.md + .gitignore cleanup` |
+| `0d2d0aa` | `feat(umbrella): Phase 0 docs + P0.1 SQL-injection probe + LICENSE files + Valkey swap + MCP dedupe` |
+| `5f1183f` | `docs(umbrella): HANDOFF.md section 10.5 — correct the falkordb install path` |
+| `109fc6c` | `feat(umbrella): wire data-layer-qdrant (5th submodule) + MCP rag.* tools + postgres emails` |
+
+(All pushed by the user-initiated `git push origin main` sequence earlier
+in this session.)
+
+#### 13.5.3 Working-tree state
+
+Only intentionally-ignored file untracked:
+- `.a0proj/mcp_servers.json.bak-20260916T164142Z-mcp-dedupe` — backup of the
+  per-project MCP registry, replaced with `{}` when the global MCP registration
+  in `/a0/usr/settings.json` was made canonical. Safe to delete.
+
+### 13.6 Next agent's first 5 actions
+
+1. `cd /a0/usr/projects/data-layer && cat HANDOFF.md` — re-read this §13 in full.
+2. Read the 3 unpushed commits: `git log 262b8db..HEAD --stat` (umbrella) and
+   `cd data-layer-adapters && git log d6e4842..HEAD --stat`.
+3. Re-verify the temp services: `pg_isready -h localhost -p 5432`,
+   `redis-cli -p 6379 PING`, `redis-cli -p 6389 PING`,
+   `curl -sf http://localhost:6333/healthz`.
+4. Re-run MCP end-to-end:
+   `cd data-layer-adapters && /opt/venv/bin/python -m unittest mcp.tests.test_server -v`
+   — expect `Ran 36 tests in ~1s OK`. If any test fails, STOP and flag.
+5. Resume Path C from §13.3.1 item #1: pick build path for this host
+   (podman / external-build-and-load / Tailscale peer with working Docker).
+
+### 13.7 Decision log (this session, in order)
+
+1. "a" → roll back to native install path (Option A from the build-blocker
+   menu). Result: 4 native services + 36/36 MCP green; 3 unpushed commits
+   left intact for the compose-stack wiring.
+2. "d" → standing down, no further action. Result: state frozen as §13.1.
+3. "execute c" → begin Path C (production single-stack compose). Started
+   with item #1 (resolve build blocker); user then redirected to create this
+   handoff mid-task.
+
+---
