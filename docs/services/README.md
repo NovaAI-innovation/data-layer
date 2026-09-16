@@ -1,16 +1,16 @@
 # data-layer services overview
 
 Each of the five submodules is a fully wired service with its own
-git repository, Dockerfile, `lib/install.sh`, and migration files.
-See the README inside each submodule for the full contract.
+git repository, Dockerfile, `lib/install.sh`, migration files,
+LICENSE, and a 5-dimension schema doc (`SCHEMAS.md` for postgres/redis/falkordb/qdrant; `TOOLS_AND_WIRING.md` for adapters). See the README inside each submodule for the full contract.
 
-| Submodule | README in this repo | Upstream repo |
-|---|---|---|
-| `data-layer-postgres/` | [README](./../../data-layer-postgres/README.md) | `github.com/NovaAI-innovation/data-layer-postgres` |
-| `data-layer-redis/` | [README](./../../data-layer-redis/README.md) | `github.com/NovaAI-innovation/data-layer-redis` |
-| `data-layer-falkordb/` | [README](./../../data-layer-falkordb/README.md) | `github.com/NovaAI-innovation/data-layer-falkordb` |
-| `data-layer-qdrant/` | [README](./../../data-layer-qdrant/README.md) | `github.com/NovaAI-innovation/data-layer-qdrant` |
-| `data-layer-adapters/` | [README](./../../data-layer-adapters/README.md) | `github.com/NovaAI-innovation/data-layer-adapters` |
+| Submodule | README in this repo | Schema/tools doc | Upstream repo | License |
+|---|---|---|---|---|
+| `data-layer-postgres/` | [README](./../../data-layer-postgres/README.md) | [SCHEMAS.md](./../../data-layer-postgres/SCHEMAS.md) | `github.com/NovaAI-innovation/data-layer-postgres` | PostgreSQL License |
+| `data-layer-redis/` | [README](./../../data-layer-redis/README.md) | [SCHEMAS.md](./../../data-layer-redis/SCHEMAS.md) | `github.com/NovaAI-innovation/data-layer-redis` | BSD-3-Clause |
+| `data-layer-falkordb/` | [README](./../../data-layer-falkordb/README.md) | [SCHEMAS.md](./../../data-layer-falkordb/SCHEMAS.md) | `github.com/NovaAI-innovation/data-layer-falkordb` | SSPL v1 (non-OSI) |
+| `data-layer-qdrant/` | [README](./../../data-layer-qdrant/README.md) | [SCHEMAS.md](./../../data-layer-qdrant/SCHEMAS.md) | `github.com/NovaAI-innovation/data-layer-qdrant` | Apache License 2.0 |
+| `data-layer-adapters/` | [README](./../../data-layer-adapters/README.md) | [TOOLS_AND_WIRING.md](./../../data-layer-adapters/TOOLS_AND_WIRING.md) | `github.com/NovaAI-innovation/data-layer-adapters` | BSD-3-Clause |
 
 ## Per-submodule interface contract
 

@@ -126,7 +126,45 @@ docker compose down -v         # stop + DELETE ALL DATA
 - FalkorDB RESP is unauthenticated by default.
 - For multi-host exposure, use TLS or a reverse proxy.
 
+## Documentation
+
+| Doc | Purpose |
+|---|---|
+| `HANDOFF.md` | Session-by-session status log + handoff to next agent |
+| `TOOLS_AND_WIRING.md` | Umbrella orchestration: bootstrap, install.sh, docker-compose.yml, .gitmodules, MCP registration, versioning/tagging |
+| `NOTICE` | Third-party attributions for every direct dependency (PostgreSQL+pgvector, Valkey+Redis, FalkorDB SSPL v1, Qdrant, fastembed, sentence-transformers, Agent Zero, MCP SDK, LiteLLM, Flask, Alpine.js, etc.) |
+| `LICENSE` | Umbrella license (BSD-3-Clause, Casey 2026) |
+| `CONTRIBUTING.md` | ICLA + CCLA templates + DCO sign-off alternative + review/security policy |
+| `docs/SUBMODULE_OWNERSHIP.md` | Boundary rules + ownership matrix + wiring-route map + audit triggers |
+| `docs/architecture.md` | Submodule relationship diagram; cross-layer email → postgres → qdrant flow |
+| `docs/bootstrap-flow.md` | What happens when `bootstrap` runs |
+| `docs/services/README.md` | Per-service overview + `lib/install.sh` contract |
+| `docs/audits/fastembed-license-compat.md` | License compatibility audit of the qdrant embedding pipeline (Apache-2.0 / MIT — all PASS) |
+| `docs/completion-audit-2026-09-15.md` | Raw 84% completion audit with per-submodule matrix |
+| `data-layer-postgres/SCHEMAS.md` | Per-table, per-column spec for the 13 tables across 7 migrations (5-dimension format) |
+| `data-layer-redis/SCHEMAS.md` | Redis key namespace + dual-write families + RESP command inventory |
+| `data-layer-falkordb/SCHEMAS.md` | Graph schema (nodes + edges + cypher migrations) |
+| `data-layer-qdrant/SCHEMAS.md` | Both qdrant collection payload schemas (5-dimension per field) |
+| `data-layer-adapters/TOOLS_AND_WIRING.md` | All 21 MCP tools + lib scripts + framework adapters + dual-write path |
+
+## License posture (per repo)
+
+| Repo | License | Holder |
+|---|---|---|
+| data-layer (umbrella) | BSD-3-Clause | Casey 2026 |
+| data-layer-adapters  | BSD-3-Clause | Casey 2026 |
+| data-layer-postgres  | PostgreSQL License | PostgreSQL Global Development Group |
+| data-layer-redis     | BSD-3-Clause | Casey + Valkey/Redis lineages |
+| data-layer-falkordb  | SSPL v1 (non-OSI; commercial license may be required for service-side use) | FalkorDB project contributors |
+| data-layer-qdrant    | Apache License 2.0 | Casey + Qdrant contributors |
+
 ## Status
 
 All five submodules are wired and operational. The `bootstrap`
 dispatcher applies migrations idempotently; re-runs are no-ops.
+
+Phase 0 docs ✅, P0.1 SQL-injection probe ✅, LICENSE files in all 6
+repos ✅, NOTICE + CONTRIBUTING.md ✅, Valkey 8.x swap ✅, MCP dedupe
+(global /a0/usr/settings.json is canonical) ✅, qdrant drift cleanup
+✅, fastembed license audit ✅ — see HANDOFF.md §1 for the per-row
+status with commit hashes and dates.
