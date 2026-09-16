@@ -391,14 +391,13 @@ DATA_LAYER_TEST_DSN="$DATA_LAYER_POSTGRES_DSN" \
 
 ## 11. How to resume (next agent)
 
-1. **Read first:** `/a0/usr/projects/data-layer/HANDOFF.md` (this file) + `/a0/usr/projects/data-layer/docs/completion-audit-2026-09-15.md` + `/a0/usr/projects/data-layer/README.md` + `/a0/usr/projects/data-layer/docs/architecture.md`.
-2. **Confirm with the principal:** the four open blockers in §7 (license posture, Redis swap, Phase 0 gating, lawyer review).
-3. **If Phase 0 gating approved:** start with P0.1 SEC-1 SQL injection red team (cheapest, biggest blocker if failed). Sequence per §4 Phase 0 table.
-4. **If Phase 0 gating skipped:** start with P1.1 LICENSE (urgent). Then P1.2 Redis swap. Then P1.3 Dockerfile pin.
-5. **In all cases:** load the `multi-angle-gap-analysis` skill (already at `/a0/usr/skills/multi-angle-gap-analysis/SKILL.md`) before doing any further gap analysis. Use the canonical six-field structure for every item.
-6. **Update this HANDOFF.md** when meaningful state changes land. Append to §1 (status snapshot) + §6 (live runtime state) + §10 (native wire-up) at minimum.
-
----
+1. **Read first:** `/a0/usr/projects/data-layer/HANDOFF.md` (this file) + `/a0/usr/projects/data-layer/CHANGELOG.md` + `/a0/usr/projects/data-layer/README.md` + `/a0/usr/projects/data-layer/docs/SUBMODULE_OWNERSHIP.md` + `/a0/usr/projects/data-layer/TOOLS_AND_WIRING.md`.
+2. **State as of 2026-09-16:** Phase 0 docs ✅, P0.1 SQL-injection probe ✅, LICENSE files in all 6 repos ✅, NOTICE bundled ✅, CONTRIBUTING.md ✅, Valkey 8.x swap ✅, MCP registration dedupe ✅, qdrant submodule drift cleanup ✅, fastembed license audit ✅. See §1 status snapshot for the per-row table with commit hashes.
+3. **Open blockers:** Wire-up E (MCP end-to-end with live backends) — requires Wire-up B (postgres native install at 25%), Wire-up C (redis native), Wire-up D (falkordb native) all brought up first. These require user authorization to touch system services per AGENTS.md project-isolation rule.
+4. **Strategic decisions pending (requires principal input):** product name + trademark posture (5ad18725); CLA/DCO formalization (f6dbd76a — drafted in CONTRIBUTING.md, awaiting review); legal review of SSPL v1 implications for falkordb (719aa6eb — non-OSI license; commercial license may be required for service-side use cases).
+5. **P0.2..P0.9 — remaining boundary probes** (auth bypass, tenant-prefix, schema invariants, idempotency, pool exhaustion, throughput, scale, chaos) are designed but not run; sequence per §3.2 + §4.
+6. **In all cases:** load the `multi-angle-gap-analysis` skill (already at `/a0/skills/multi-angle-gap-analysis/SKILL.md`) before doing any further gap analysis. Use the canonical six-field structure for every item.
+7. **Update this HANDOFF.md** when meaningful state changes land. Append to §1 (status snapshot) + §6 (live runtime state) + §10 (native wire-up) at minimum. Update CHANGELOG.md as well.
 
 ## 12. Cross-references
 
