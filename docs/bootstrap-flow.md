@@ -24,10 +24,11 @@ are already populated.
    - `data-layer-postgres` → applies SQL migrations + creates agent_zero role/db/grants
    - `data-layer-redis` → reports config (no-op; server is managed by docker)
    - `data-layer-falkordb` → applies Cypher migrations
+   - `data-layer-qdrant` → creates 2 collections (mpg_source_authority_documents, mpg_emails) + seeds (gated by MCP_INSTALL_MODE=1)
 2. Runs `data-layer-adapters/bootstrap seed` → applies per-adapter seed rows.
 
 Re-runs are no-ops: postgres tracks applied versions in `schema_migrations`,
-falkordb tracks in `:_SchemaMigrations`, and seeds use `INSERT ... ON CONFLICT`.
+falkordb tracks in `:_SchemaMigrations`, qdrant collections are idempotent (apply_migrations.py skips existing), and seeds use `INSERT ... ON CONFLICT`.
 
 ### `bootstrap <component>`
 

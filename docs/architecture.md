@@ -6,14 +6,14 @@ Each submodule is its own git repository with its own remote, Dockerfile,
 
 ```
 data-layer (umbrella)
-├── bootstrap                       single dispatcher (init|install|verify|status|help)
+├── bootstrap                       single dispatcher (init|install|verify|status|reset|seed|help)
 ├── install.sh                      convenience wrapper (runs bootstrap all)
 ├── docker-compose.yml              five-service compose file
 ├── scripts/                        one-shot installers + preflight
 ├── tests/                          cross-submodule smoke test
-├── docs/                           architecture + bootstrap-flow + services overview
+├── docs/                           architecture + bootstrap-flow + services overview + submodule ownership + audits
 data-layer-postgres/                its own repo — postgres schema + migrations (the SOT)
-data-layer-redis/                   its own repo — redis cache + tenant isolation (ephemeral)
+data-layer-redis/                   its own repo — valkey 8.x cache + tenant isolation (ephemeral)
 data-layer-falkordb/                its own repo — falkordb graph + Cypher migrations
 data-layer-qdrant/                  its own repo — vector / RAG layer (semantic index)
 data-layer-adapters/                its own repo — framework adapters + universal MCP server
