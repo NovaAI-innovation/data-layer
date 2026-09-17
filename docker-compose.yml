@@ -90,7 +90,20 @@ services:
     image: agent0ai/agent-zero:latest
     container_name: data-layer-a0-init
     restart: "no"
-    command: ["/bin/bash", "-c", "test -x /opt/venv-a0/bin/pip && echo '[a0-init] shared venv populated (/opt/venv-a0)' && ls /opt/venv-a0/bin/python* | head -2; test -d /a0/usr && echo '[a0-init] /a0/usr present' || mkdir -p /a0/usr; echo '[a0-init] done'"]
+    # Pre-create the A0 plugin tree in the shared /a0/usr volume and install
+    # psycopg + mcp into the A0-image's OWN venv (keeping it libc-compatible
+    # with the a0 runtime that will reuse this volume). Done by the a0-init
+    # container so the wiring one-shot never touches the venv directly.
+    command:
+      - "/bin/bash"
+      - "-c"
+      - >
+        set -e;
+        mkdir -p /a0/usr/plugins /a0/usr/settings /a0/usr/chats /a0/usr/memory;
+        echo '[a0-init] /a0/usr tree materialized in shared volume';
+        /opt/venv-a0/bin/pip install --quiet --upgrade psycopg mcp;
+        echo '[a0-init] psycopg+mcp installed in shared venv (/opt/venv-a0)';
+        /opt/venv-a0/bin/python -c 'import psycopg, mcp; print("[a0-init] import check OK", psycopg.__version__)'
     volumes:
       - a0_venv:/opt/venv-a0
       - a0_usr:/a0/usr
@@ -286,7 +299,6 @@ services:
       ADAPTER_ROLE: agent-zero
       DATA_LAYER_LOCAL_CONTAINER_NAME: data-layer-a0
       DATA_LAYER_RUN_MIGRATE: "${DATA_LAYER_RUN_MIGRATE:-1}"
-      DATA_LAYER_ADAPTERS_A0_A0_VENV: /opt/venv-a0
       DATA_LAYER_ADAPTERS_A0_A0_PLUGINS_DIR: /a0/usr/plugins
       DATA_LAYER_POSTGRES_DSN: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-postgres}
       DATA_LAYER_AGENT_ZERO_DSN: postgresql://agent_zero:${DATA_LAYER_AGENT_ZERO_PASSWORD:?DATA_LAYER_AGENT_ZERO_PASSWORD is required}@postgres:5432/postgres
