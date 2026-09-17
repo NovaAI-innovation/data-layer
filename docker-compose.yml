@@ -1,50 +1,68 @@
 # data-layer/docker-compose.yml
 #
-# Single compose file for the entire data-layer deployment.
-# Brings up four services in dependency order:
-#   postgres  → schema service (pgvector/pgvector:pg16)
-#   redis     → bounded cache + pub/sub bus
-#   falkordb  → graph service (RESP on 6379, bolt/UI on 7687)
-#   adapters  → universal MCP server + long-lived redis_publish_hook sidecar
+# CANONICAL DEPLOYMENT FILE for the data-layer bootstrap kit.
+# Per principal directive 2026-09-17, the native in-container wire-up inside the
+# Agent Zero runtime container is DEPRECATED (its supervisor programs were
+# disabled at user request); this compose file is the supported deployment path
+# on any host with Docker.
+#
+# Brings up the full stack in dependency order:
+#   postgres  → schema service (SOT)            [data-layer-postgres]
+#   redis     → bounded cache + pub/sub (Valkey)[data-layer-redis]
+#   falkordb  → graph service (RESP module)     [data-layer-falkordb]
+#   qdrant    → vector / RAG layer              [data-layer-qdrant]
+#   adapters  → publish-hook sidecar            [data-layer-adapters]
+#   agent-zero→ one-shot A0 wiring bootstrap    [data-layer-agent-zero]
+#   validate  → read-only smoke/validation run  [data-layer-validate] (profile: validate)
+#
+# ── The +1 port rule ────────────────────────────────────────────────
+# Every HOST-visible port = service standard port + 1. On collision the
+# assignment escalates deterministically (+2) in stack-composition order.
+# Internal/container ports ALWAYS stay standard. Consumers inside the
+# compose network use standard ports; only host-side integrations use +1.
+#
+#   Service        Standard   Host-published
+#   postgres       5432  →    5433
+#   redis/valkey   6379  →    6380
+#   falkordb RESP  6379  →    6381   (6380 taken by valkey → +2)
+#   falkordb bolt  7687  →    7688
+#   falkordb web   3000  →    3001
+#   qdrant HTTP    6333  →    6334
+#   qdrant gRPC    6334  →    6335
+#
+# ── Unique identity ─────────────────────────────────────────────────
+#   compose project : data-layer
+#   network         : data_layer (explicit name; external consumers attach by this name)
+#   containers      : data-layer-postgres | data-layer-redis | data-layer-falkordb
+#                     | data-layer-qdrant | data-layer-adapters | data-layer-agent-zero
+#                     | data-layer-validate
+#
+# ── Validation phase (idempotent, read-only) ────────────────────────
+#   docker compose --profile validate up validate
+# Runs the adapters' read-only smoke checks against the healthy stack.
+# Existing data is verified, never reseeded; safe to re-run any time.
+#
+# ── Hardened Agent Zero ─────────────────────────────────────────────
+# The A0 agent itself ships via deploy/docker-compose.agent-zero.yml
+# (WebUI 81, SSH 23 — same +1 rule). It joins this stack's `data_layer`
+# network as an external client. See that file's header.
 #
 # Usage:
-#   docker compose up -d --build       # build + start
+#   docker compose up -d --build        # build + start the stack
 #   docker compose ps                   # status
+#   docker compose --profile validate up validate   # read-only validation phase
 #   docker compose logs -f adapters     # tail the publish hook
 #   docker compose down                 # stop (volumes preserved)
 #   docker compose down -v              # stop + delete volumes (DROPS DATA)
 #
-# Port mapping notes (multi-host reachability):
-# All ports are published on all interfaces (0.0.0.0) so other hosts on
-# the network — e.g. other Tailscale nodes — can reach the services.
-# The previous "127.0.0.1:NNNN:NNNN" bindings made the services reachable
-# from the Docker host only.
-#
-# - postgres: 5432:5432           scram-sha-256 auth, agent_zero role
-#                                  has tight per-table grants (see
-#                                  zzz_create_agent_zero.sh). Passwords
-#                                  must be rotated from the defaults.
-# - redis:    6380:6379           host 6380 to avoid colliding with
-#                                  falkordb's 6379 below
-# - falkordb: 6379:6379 / 7687:7687 / 3000:3000
-#             Will collide with any standalone `falkordb-test-sandbox`
-#             container on the same host. Stop that container first
-#             OR change this mapping to e.g. 16379:6379.
-# - adapters: no host port (publish hook is a pure sidecar; MCP server
-#             runs on stdio via `docker compose run --rm adapters mcp`)
-#
-# Security notes for multi-host exposure:
-# - Postgres uses scram-sha-256, NOT trust. The postgres user and
-#   agent_zero user both have passwords; never commit real passwords —
-#   use the .env file (not committed).
-# - Redis is currently unpassworded. Anyone who can reach the host's
-#   6380 can read/write every key. Add `requirepass` in redis.conf
-#   before any non-test deployment.
-# - falkordb RESP (6379) is unauthenticated by default. Add AUTH if
-#   the network is shared.
-# - For multi-host over public networks, terminate TLS at a reverse
-#   proxy in front of each service or use the docker-compose secrets
-#   + TLS variants of each image. Out of scope for this file.
+# Security notes:
+# - postgres: scram-sha-256 (see POSTGRES_HOST_AUTH_METHOD); passwords come
+#   from .env / .a0proj/secrets.env — never committed.
+# - redis.conf is mounted read-only; add `requirepass` before any shared-network
+#   deployment.
+# - falkordb RESP is unauthenticated by default; add AUTH if the network is shared.
+# - For multi-host exposure over public networks, terminate TLS at a reverse proxy
+#   in front of each published port.
 
 name: data-layer
 
@@ -52,6 +70,7 @@ services:
   postgres:
     build: ./data-layer-postgres
     image: data-layer-postgres
+    container_name: data-layer-postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-postgres}
@@ -62,7 +81,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "5433:5432"   # +1 rule (standard 5432)
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
@@ -74,12 +93,17 @@ services:
   redis:
     build: ./data-layer-redis
     image: data-layer-redis
+    container_name: data-layer-redis
     restart: unless-stopped
     command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
     volumes:
       - redis_data:/data
+      # Explicit read-only config mount: the compose command references this
+      # path, so the file must exist in-container even if the Dockerfile copy
+      # changes. Source of truth: data-layer-redis/redis.conf (Valkey 8.x).
+      - ./data-layer-redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
     ports:
-      - "6380:6379"
+      - "6380:6379"   # +1 rule (standard 6379)
     healthcheck:
       test: ["CMD", "redis-cli", "-p", "6379", "PING"]
       interval: 10s
@@ -91,6 +115,7 @@ services:
   falkordb:
     build: ./data-layer-falkordb
     image: data-layer-falkordb
+    container_name: data-layer-falkordb
     restart: unless-stopped
     environment:
       FALKORDB_PORT: "6379"
@@ -99,9 +124,9 @@ services:
     volumes:
       - falkordb_data:/data
     ports:
-      - "6379:6379"   # RESP — collides with falkordb-test-sandbox
-      - "7687:7687"   # embedded Next.js web UI
-      - "3000:3000"
+      - "6381:6379"   # +1 rule, escalated to +2: 6380 is taken by valkey
+      - "7688:7687"   # +1 rule (embedded Next.js web UI)
+      - "3001:3000"   # +1 rule
     healthcheck:
       test:
         - "CMD-SHELL"
@@ -115,8 +140,11 @@ services:
   qdrant:
     build: ./data-layer-qdrant
     image: data-layer-qdrant
+    container_name: data-layer-qdrant
     restart: unless-stopped
     environment:
+      # Internal ports stay STANDARD; the +1 mapping happens only at the
+      # published-port boundary above/below.
       QDRANT__SERVICE__HTTP_PORT: "6333"
       QDRANT__SERVICE__GRPC_PORT: "6334"
       QDRANT__STORAGE__STORAGE_PATH: /qdrant/storage
@@ -130,8 +158,8 @@ services:
       - qdrant_storage:/qdrant/storage
       - ./data-layer-qdrant/qdrant_config.yaml:/qdrant/config/production.yaml:ro
     ports:
-      - "6333:6333"   # HTTP REST API
-      - "6334:6334"   # gRPC API
+      - "6334:6333"   # +1 rule (HTTP REST; standard 6333)
+      - "6335:6334"   # +1 rule (gRPC; standard 6334)
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:6333/healthz || exit 1"]
       interval: 10s
@@ -143,6 +171,7 @@ services:
   adapters:
     build: ./data-layer-adapters
     image: data-layer-adapters
+    container_name: data-layer-adapters
     restart: unless-stopped
     depends_on:
       postgres:
@@ -155,7 +184,8 @@ services:
         condition: service_healthy
     environment:
       ADAPTER_ROLE: hook
-      # Defaults assume compose-provided service hostnames.
+      # Internal service hostnames + STANDARD ports (compose-internal traffic
+      # never uses the +1 host mapping).
       DATA_LAYER_POSTGRES_DSN: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-postgres}
       DATA_LAYER_AGENT_ZERO_DSN: postgresql://agent_zero:${DATA_LAYER_AGENT_ZERO_PASSWORD:?DATA_LAYER_AGENT_ZERO_PASSWORD is required}@postgres:5432/postgres
       DATA_LAYER_REDIS_URL: redis://redis:6379/0
@@ -166,6 +196,7 @@ services:
       DATA_LAYER_FALKORDB_HOST: falkordb
       DATA_LAYER_FALKORDB_PORT: "6379"
       DATA_LAYER_FALKORDB_DATABASE: ${DATA_LAYER_FALKORDB_DATABASE:-default}
+      DATA_LAYER_QDRANT_URL: http://qdrant:6333
       DATA_LAYER_PUBSUB_PREFIX: "dl:pubsub:"
       DATA_LAYER_DW_SESSION_PRESENCE: "${DATA_LAYER_DW_SESSION_PRESENCE:-true}"
       DATA_LAYER_DW_TOOL_EXECUTION: "${DATA_LAYER_DW_TOOL_EXECUTION:-false}"
@@ -177,16 +208,46 @@ services:
     networks:
       - data_layer
 
+  validate:
+    # READ-ONLY validation phase (profile-gated; never started by `up -d`).
+    # Runs the adapters' existing smoke checks against the healthy stack:
+    # schema present, collections present, cache/graph reachable. Verifies
+    # existing data without reseeding; safe to re-run any time.
+    build: ./data-layer-adapters
+    image: data-layer-adapters
+    container_name: data-layer-validate
+    restart: "no"
+    profiles: ["validate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      falkordb:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    environment:
+      ADAPTER_ROLE: smoke
+      DATA_LAYER_POSTGRES_DSN: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-postgres}
+      DATA_LAYER_REDIS_URL: redis://redis:6379/0
+      DATA_LAYER_FALKORDB_HOST: falkordb
+      DATA_LAYER_FALKORDB_PORT: "6379"
+      DATA_LAYER_FALKORDB_DATABASE: ${DATA_LAYER_FALKORDB_DATABASE:-default}
+      DATA_LAYER_QDRANT_URL: http://qdrant:6333
+    networks:
+      - data_layer
+
   agent-zero:
     # One-shot bootstrap service for the Agent Zero instance.
     # Runs `agent-zero/bootstrap install` (deps + plugin) and `seed`
     # (applies seeds/0001_default_agent.sql + 0002_migrate_local_id.sql),
     # then idles so the container can be inspected. exit code 0 = success.
-    # The actual A0 web UI runs OUTSIDE this compose stack (it's the
-    # agent you're talking to right now); this service only wires the
-    # database row + plugin that A0 reads.
+    # The full hardened A0 runtime ships separately via
+    # deploy/docker-compose.agent-zero.yml (WebUI :81, SSH :23).
     build: ./data-layer-adapters
     image: data-layer-adapters
+    container_name: data-layer-agent-zero
     restart: "no"
     depends_on:
       postgres:
@@ -201,7 +262,7 @@ services:
         condition: service_started
     environment:
       ADAPTER_ROLE: agent-zero
-      DATA_LAYER_LOCAL_CONTAINER_NAME: agent-zero
+      DATA_LAYER_LOCAL_CONTAINER_NAME: data-layer-agent-zero
       DATA_LAYER_RUN_MIGRATE: "${DATA_LAYER_RUN_MIGRATE:-1}"
       DATA_LAYER_POSTGRES_DSN: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-postgres}
       DATA_LAYER_AGENT_ZERO_DSN: postgresql://agent_zero:${DATA_LAYER_AGENT_ZERO_PASSWORD:?DATA_LAYER_AGENT_ZERO_PASSWORD is required}@postgres:5432/postgres
@@ -223,3 +284,6 @@ volumes:
 networks:
   data_layer:
     driver: bridge
+    # Explicit network name so the hardened A0 compose file (and any future
+    # layer / bulk-prefabricated-agent stack) can attach externally by name.
+    name: data_layer

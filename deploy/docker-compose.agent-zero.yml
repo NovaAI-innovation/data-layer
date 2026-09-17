@@ -1,0 +1,106 @@
+# data-layer/deploy/docker-compose.agent-zero.yml
+#
+# HARDENED, PRE-CONFIGURED AGENT ZERO deployment for the data-layer kit.
+#
+# This is the agent runtime itself as a container, pre-wired to the data-layer
+# stack: MCP retrieval server, writer plugin, DSNs, and shared network. Start
+# the main stack FIRST (docker compose up -d from the repo root) so the
+# data_layer network and the five service containers exist.
+#
+# ── The +1 port rule ─────────────────────────────────────────────────
+#   A0 WebUI   standard 80  →  host 81
+#   A0 SSH     standard 22  →  host 23
+# (Internal container ports stay standard; data services are reached over the
+#  shared network on their STANDARD ports — the +1 mapping is host-boundary
+#  only and never appears in DSNs below.)
+#
+# ── Unique identity ──────────────────────────────────────────────────
+#   compose project : data-layer-agent-zero
+#   container       : data-layer-a0   (NOT data-layer-agent-zero — that name
+#                                     belongs to the main stack's one-shot
+#                                     wiring service)
+#   network         : data_layer (external; created by the main stack)
+#
+# ── Pre-wired architecture ───────────────────────────────────────────
+#   /a0/usr/mcp                      ← data-layer-adapters/mcp       (universal MCP server, 21 tools)
+#   /a0/usr/plugins/data_layer_writer← data-layer-adapters/agent-zero/plugin (global capture plugin)
+#   env DATA_LAYER_POSTGRES_DSN etc. ← service DSNs resolved via docker DNS
+#
+# Usage (from this deploy/ directory):
+#   docker network create data_layer                 # only if main stack not yet up
+#   docker compose -f docker-compose.agent-zero.yml up -d
+#   docker compose -f docker-compose.agent-zero.yml ps
+#
+# Hardening posture: no-new-privileges, bounded memory/CPU, log rotation,
+# healthcheck-gated restart, isolated tmpfs. NOTE: A0 is an autonomous agent
+# runtime that intentionally executes tools inside its container; do not add
+# --privileged or docker.sock mounts without accepting the risk trade-off.
+
+name: data-layer-agent-zero
+
+services:
+  a0:
+    image: frdel/agent-zero-run:latest
+    # To pin the exact A0 build shipped with this kit, override with your
+    # own build, e.g.:
+    # build:
+    #   context: ../../agent-zero        # A0 framework checkout (optional)
+    #   dockerfile: DockerfileLocal
+    container_name: data-layer-a0
+    restart: unless-stopped
+    stop_grace_period: 60s
+    ports:
+      - "81:80"    # WebUI  (+1 rule; standard 80)
+      - "23:22"    # SSH    (+1 rule; standard 22)
+    environment:
+      # ── data-layer wiring (standard ports over the shared network) ──
+      DATA_LAYER_POSTGRES_DSN: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@data-layer-postgres:5432/${POSTGRES_DB:-postgres}
+      DATA_LAYER_AGENT_ZERO_DSN: postgresql://agent_zero:${DATA_LAYER_AGENT_ZERO_PASSWORD:?DATA_LAYER_AGENT_ZERO_PASSWORD is required}@data-layer-postgres:5432/postgres
+      DATA_LAYER_REDIS_URL: redis://data-layer-redis:6379/0
+      DATA_LAYER_REDIS_HOST: data-layer-redis
+      DATA_LAYER_REDIS_PORT: "6379"
+      DATA_LAYER_REDIS_PREFIX: "${DATA_LAYER_REDIS_PREFIX:-dl:}"
+      DATA_LAYER_FALKORDB_HOST: data-layer-falkordb
+      DATA_LAYER_FALKORDB_PORT: "6379"
+      DATA_LAYER_FALKORDB_DATABASE: ${DATA_LAYER_FALKORDB_DATABASE:-default}
+      DATA_LAYER_FALKORDB_URL: redis://data-layer-falkordb:6379
+      DATA_LAYER_QDRANT_URL: http://data-layer-qdrant:6333
+      DATA_LAYER_DW_SESSION_PRESENCE: "${DATA_LAYER_DW_SESSION_PRESENCE:-true}"
+      DATA_LAYER_DW_TOOL_EXECUTION: "${DATA_LAYER_DW_TOOL_EXECUTION:-true}"
+      # ── A0 basics ──
+      # API keys / model config are read from the persisted /a0/usr volume
+      # (settings.json) — never bake secrets into this file.
+    volumes:
+      - a0_usr:/a0/usr                                   # persistent A0 state (settings, plugins, chats, memory)
+      - ../data-layer-adapters/mcp:/a0/usr/mcp:ro        # universal MCP server (21 tools) — read-only
+      - ../data-layer-adapters/agent-zero/plugin:/a0/usr/plugins/data_layer_writer  # capture plugin
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c 'import urllib.request,sys; sys.exit(0 if urllib.request.urlopen(\"http://127.0.0.1:80/\", timeout=5).status < 500 else 1)'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 8g
+          cpus: "4.0"
+    networks:
+      - data_layer
+
+volumes:
+  a0_usr:
+
+networks:
+  data_layer:
+    external: true
+    name: data_layer

@@ -589,3 +589,58 @@ Only intentionally-ignored file untracked:
    handoff mid-task.
 
 ---
+
+---
+
+## 14. Session 2026-09-17 — compose-first pivot, +1 port rule, hardened A0 compose
+
+**Principal directive (2026-09-17):** do not restore the in-container native services;
+focus on the Docker Compose deployment path. Native supervisor programs were disabled at
+user request (see /etc/supervisor/conf.d/data-layer-*.conf tombstones); the compose file
+is now the canonical deployment.
+
+### Changes landed
+
+1. **docker-compose.yml (canonical, rewritten):** every host-visible port follows the
+   **+1 rule** (standard+1; deterministic escalation on collision):
+
+   | Service | Standard | Host |
+   |---|---|---|
+   | postgres | 5432 | **5433** |
+   | redis/valkey | 6379 | **6380** |
+   | falkordb RESP | 6379 | **6381** (+2 — 6380 taken) |
+   | falkordb bolt / web | 7687 / 3000 | **7688 / 3001** |
+   | qdrant HTTP / gRPC | 6333 / 6334 | **6334 / 6335** |
+
+   Internal container ports stay standard; DSNs inside the network never use +1.
+   Unique identity: project `data-layer`, explicit network `data_layer`, containers
+   `data-layer-{postgres,redis,falkordb,qdrant,adapters,agent-zero,validate}`.
+   New: read-only `redis.conf` mount fix; **profile-gated read-only `validate`
+   service** (`docker compose --profile validate up validate`) implementing the
+   validation phase (verify existing data, never reseed).
+
+2. **deploy/docker-compose.agent-zero.yml (new):** hardened, pre-configured Agent Zero
+   container — WebUI **81**/SSH **23** (+1 rule), container `data-layer-a0`, joins the
+   `data_layer` network externally, no-new-privileges, memory/CPU limits, log rotation,
+   healthcheck, pre-wired MCP server + data_layer_writer plugin mounts + DSN env.
+
+3. **lib/ (new, retained as fallback rungs):** `service_ctl.sh` (supervisor → direct
+   launch → fail-out-loud ladder), `install_supervisor_programs.sh` (idempotent native
+   supervisor program generator), `validate.sh` (read-only validation evidence).
+   All three banner-deprecated 2026-09-17 for in-container use; canonical path is compose.
+
+4. **Port cutover applied to env/settings:** `.env`/`.env.example` DSNs and
+   `/a0/usr/settings.json` MCP DSN now target 5433/6380/6381/6334.
+
+### Verification evidence (2026-09-17)
+
+- `docker compose config` schema-OK for BOTH compose files (daemonless client validation).
+- Resolved published ports verified: main = {5433, 6380, 6381, 7688, 3001, 6334, 6335};
+  A0 = {81, 23}; container names and `data_layer` network name verified in resolved output.
+- Native services confirmed DOWN and left down, per directive.
+
+### Open items (blocked on a Docker-capable host — this A0 container cannot run dockerd)
+
+- `docker compose up -d --build` end-to-end on a real host + `--profile validate` green run.
+- MCP e2e suite against the live stack; data_layer_writer capture row-delta verification.
+- Legal/licensing reviews (§1 backlog items, still pending).
