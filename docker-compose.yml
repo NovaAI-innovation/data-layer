@@ -101,8 +101,8 @@ services:
         set -e;
         mkdir -p /a0/usr/plugins /a0/usr/settings /a0/usr/chats /a0/usr/memory;
         echo '[a0-init] /a0/usr tree materialized in shared volume';
-        /opt/venv-a0/bin/pip install --quiet --upgrade psycopg mcp;
-        echo '[a0-init] psycopg+mcp installed in shared venv (/opt/venv-a0)';
+        /opt/venv-a0/bin/pip install --quiet --upgrade 'psycopg[binary]' mcp;
+        echo '[a0-init] psycopg[binary]+mcp installed in shared venv (/opt/venv-a0)';
         /opt/venv-a0/bin/python -c 'import psycopg, mcp; print("[a0-init] import check OK", psycopg.__version__)'
     volumes:
       - a0_venv:/opt/venv-a0
