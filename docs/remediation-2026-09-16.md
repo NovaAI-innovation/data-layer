@@ -109,6 +109,20 @@ A0 hardened stack `data-layer-agent-zero` on network `data_layer`.
 - **Open-ended extension:** adding service #7 = one submodule + one `SUBMODULES` entry + one supervisor template + one port-plan row (+1 rule) + one validate check; nothing else changes. Layers may be added wholesale (bulk prefabricated agents) by composing additional compose files on the same network.
 - **Secrets:** real values only in `.a0proj/secrets.env` / `.env` (untracked); `.env.example` carries placeholders.
 
+### 6.5 Wire the Agent Zero runtime MCP (new canonical step, 2026-09-17)
+
+After compose is up and migrations+seeds have applied, the install flow invokes `scripts/wire-mcp.sh` (via `bootstrap wire-mcp`). The script:
+
+1. Installs the canonical MCP entrypoint tree (`data-layer-adapters/mcp/`) into the A0 container's `/a0/usr/mcp/` (auto-discovers the container by name pattern).
+2. Patches `/a0/usr/settings.json` inside the A0 container so `az-retrieval-mcp.env.DATA_LAYER_POSTGRES_DSN` points at `data-layer-postgres:5432` (compose-network hostname, **standard** internal port) with the real password from the host `.env`.
+3. Bounces `run_ui` inside the A0 container (`supervisorctl restart run_ui`) — required because the settings block is consumed at A0 startup.
+4. Waits for `run_ui` to come `RUNNING` (up to 30s).
+5. Runs the 36-test MCP e2e suite **from within the A0 runtime** (via `docker exec` with `PYTHONPATH=/a0/usr` + `/opt/venv-a0/bin/python`). Exits 0 only if the suite reports `OK`.
+
+This is the "all reading and writing verified from within the agent runtime" gate the principal directive 2026-09-17 specified. The script is idempotent: re-running on an already-wired stack just re-applies the settings patch and re-bounces `run_ui` (safe). Flags: `--dry-run`, `--skip-restart`.
+
+**Tailscale is NOT used.** The A0↔postgres connection goes through Docker's internal DNS on the compose `data_layer` bridge network, exactly like every other inter-container call in the stack.
+
 ## 4. Session execution order (tracked in todo list, project `data-layer`)
 
 1. [x] Diagnosis + approval + todo hygiene (49 stale cancelled)

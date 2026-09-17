@@ -10,6 +10,7 @@
 #   adapters    delegate to data-layer-adapters/bootstrap
 #   seed        apply framework-specific DB seed rows (post-schema)
 #   all         wait for healthchecks + schema install + adapter seed
+#   wire-mcp    wire the A0 runtime's MCP server to the stack's postgres (calls scripts/wire-mcp.sh)
 #   verify      run verify for every submodule
 #   status      run status for every submodule (tolerant of per-service failures)
 #   wait        block until all compose services are healthy (timeout 120s)
@@ -46,6 +47,7 @@ Subcommands:
   adapters    delegate to data-layer-adapters    adapter collection
   seed        apply framework-specific DB seed rows (requires schema installed)
   all         wait for healthchecks + schema install + adapter seed
+  wire-mcp    wire the A0 runtime's MCP server to the stack's postgres (calls scripts/wire-mcp.sh)
   verify      run verify for every submodule
   status      run status for every submodule (tolerant of per-service failures)
   wait        block until all compose services are healthy (timeout 120s)
@@ -130,6 +132,14 @@ case "${1:-help}" in
     wait_healthy "${2:-120}"
     run_all install
     run_adapters seed
+    ;;
+  wire-mcp)
+    if [[ -x "$DATA_LAYER_BASE/scripts/wire-mcp.sh" ]]; then
+      bash "$DATA_LAYER_BASE/scripts/wire-mcp.sh" "${@:2}"
+    else
+      echo "[bootstrap FAIL] scripts/wire-mcp.sh not found at $DATA_LAYER_BASE/scripts/wire-mcp.sh" >&2
+      exit 5
+    fi
     ;;
   verify)     run_all verify ;;
   status)

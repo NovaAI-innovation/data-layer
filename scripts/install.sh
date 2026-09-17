@@ -8,7 +8,11 @@
 #   4. Materialize .env from .env.example
 #   5. Build and start all services via docker compose
 #   6. Apply database migrations and adapter seeds
-#   7. Verify all services are reachable
+#   7. Wire the Agent Zero runtime's MCP server to the stack's postgres
+#      (calls scripts/wire-mcp.sh — installs mcp/ tree, patches
+#      /a0/usr/settings.json, bounces run_ui, verifies 36/36 e2e from
+#      within the A0 runtime)
+#   8. Verify all services are reachable
 #
 # Usage:
 #   bash scripts/install.sh            # full install
@@ -188,8 +192,20 @@ else
   ok "bootstrap complete"
 fi
 
-# ── step 7: verify ───────────────────────────────────────────────────
-log "Step 7/7 — verifying installation"
+# ── step 7: wire MCP into Agent Zero runtime ────────────────────────────
+log "Step 7/8 — wiring MCP into A0 runtime (via scripts/wire-mcp.sh)"
+if [[ "$DRY_RUN" == "1" ]]; then
+  log "[dry-run] would run: $ROOT_DIR/bootstrap wire-mcp"
+else
+  if bash "$ROOT_DIR/bootstrap" wire-mcp; then
+    ok "MCP wiring verified (36/36 e2e from inside A0 runtime)"
+  else
+    fail "MCP wiring failed — check wire-mcp.sh output above"
+  fi
+fi
+
+# ── step 8: verify ───────────────────────────────────────────────────
+log "Step 8/8 — verifying installation"
 if [[ "$DRY_RUN" == "1" ]]; then
   log "[dry-run] would run: $ROOT_DIR/bootstrap verify"
 else
