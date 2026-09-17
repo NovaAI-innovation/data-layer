@@ -7,13 +7,27 @@
 # on any host with Docker.
 #
 # Brings up the full stack in dependency order:
+#   a0-init   → FIRST: populate shared A0 volumes (venv + usr) from the
+#              official agent0ai/agent-zero image — this materializes
+#              /opt/venv-a0 BEFORE any wiring runs, which is exactly what
+#              the agent-zero deps step requires (principal directive
+#              2026-09-17: "the agent zero container should be the first
+#              one installed in this bootstrap").
 #   postgres  → schema service (SOT)            [data-layer-postgres]
 #   redis     → bounded cache + pub/sub (Valkey)[data-layer-redis]
 #   falkordb  → graph service (RESP module)     [data-layer-falkordb]
 #   qdrant    → vector / RAG layer              [data-layer-qdrant]
 #   adapters  → publish-hook sidecar            [data-layer-adapters]
-#   agent-zero→ one-shot A0 wiring bootstrap    [data-layer-agent-zero]
+#   agent-zero→ one-shot A0 wiring: installs psycopg+mcp INTO the shared
+#              /opt/venv-a0 volume + data_management plugin into the shared
+#              /a0/usr volume + seeds the agent row (exit 0 on success)
+#   a0        → hardened Agent Zero runtime on the SAME shared volumes —
+#              boots with plugin + deps already in place (WebUI :81, SSH :23)
 #   validate  → read-only smoke/validation run  [data-layer-validate] (profile: validate)
+#
+# Shared A0 state lives in named volumes a0_venv + a0_usr, populated once by
+# a0-init (Docker copies image content into an empty named volume on first
+# mount) and reused by the wiring one-shot and the runtime container.
 #
 # ── The +1 port rule ────────────────────────────────────────────────
 # Every HOST-visible port = service standard port + 1. On collision the
@@ -67,6 +81,19 @@
 name: data-layer
 
 services:
+  a0-init:
+    # FIRST SERVICE IN THE BOOTSTRAP — no dependencies.
+    # One-shot: mounts the shared named volumes over the image's
+    # /opt/venv-a0 and /a0/usr. Docker auto-populates empty named volumes
+    # from image content at container creation, so after this runs the
+    # venv exists in the shared volume for every later service.
+    image: agent0ai/agent-zero:latest
+    container_name: data-layer-a0-init
+    restart: "no"
+    command: ["/bin/bash", "-c", "test -x /opt/venv-a0/bin/pip && echo '[a0-init] shared venv populated (/opt/venv-a0)' && ls /opt/venv-a0/bin/python* | head -2; test -d /a0/usr && echo '[a0-init] /a0/usr present' || mkdir -p /a0/usr; echo '[a0-init] done'"]
+    volumes:
+      - a0_venv:/opt/venv-a0
+      - a0_usr:/a0/usr
   postgres:
     build: ./data-layer-postgres
     image: data-layer-postgres
@@ -239,31 +266,58 @@ services:
       - data_layer
 
   agent-zero:
-    # One-shot bootstrap service for the Agent Zero instance.
-    # Runs `agent-zero/bootstrap install` (deps + plugin) and `seed`
-    # (applies seeds/0001_default_agent.sql + 0002_migrate_local_id.sql),
-    # then idles so the container can be inspected. exit code 0 = success.
-    # The full hardened A0 runtime ships separately via
-    # deploy/docker-compose.agent-zero.yml (WebUI :81, SSH :23).
+    # One-shot A0 WIRING into the shared volumes + postgres:
+    #   deps.sh   → pip install psycopg + mcp INTO the shared /opt/venv-a0
+    #               (real venv from the a0-init-populated volume — solves
+    #               the /opt/venv-a0 problem structurally)
+    #   plugin.sh → data_management plugin into the shared /a0/usr/plugins
+    #   seed      → agent_frameworks/projects/agents rows (idempotent)
+    # Exits 0 on success so the a0 runtime can gate on completion.
     build: ./data-layer-adapters
     image: data-layer-adapters
     container_name: data-layer-agent-zero
     restart: "no"
     depends_on:
+      a0-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
-      falkordb:
-        condition: service_healthy
-      qdrant:
-        condition: service_healthy
-      adapters:
-        condition: service_started
     environment:
       ADAPTER_ROLE: agent-zero
-      DATA_LAYER_LOCAL_CONTAINER_NAME: data-layer-agent-zero
+      DATA_LAYER_LOCAL_CONTAINER_NAME: data-layer-a0
       DATA_LAYER_RUN_MIGRATE: "${DATA_LAYER_RUN_MIGRATE:-1}"
+      DATA_LAYER_ADAPTERS_A0_A0_VENV: /opt/venv-a0
+      DATA_LAYER_ADAPTERS_A0_A0_PLUGINS_DIR: /a0/usr/plugins
+      DATA_LAYER_POSTGRES_DSN: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-postgres}
+      DATA_LAYER_AGENT_ZERO_DSN: postgresql://agent_zero:${DATA_LAYER_AGENT_ZERO_PASSWORD:?DATA_LAYER_AGENT_ZERO_PASSWORD is required}@postgres:5432/postgres
+      DATA_LAYER_REDIS_URL: redis://redis:6379/0
+      DATA_LAYER_FALKORDB_HOST: falkordb
+      DATA_LAYER_FALKORDB_PORT: "6379"
+      DATA_LAYER_FALKORDB_DATABASE: ${DATA_LAYER_FALKORDB_DATABASE:-default}
+    volumes:
+      - a0_venv:/opt/venv-a0
+      - a0_usr:/a0/usr
+    networks:
+      - data_layer
+
+  a0:
+    # Hardened Agent Zero RUNTIME — same image, same shared volumes as the
+    # wiring step, so it boots with the data_management plugin installed and
+    # psycopg/mcp present in its venv. WebUI 81 (+1 rule), SSH 23.
+    image: agent0ai/agent-zero:latest
+    container_name: data-layer-a0
+    restart: unless-stopped
+    stop_grace_period: 60s
+    depends_on:
+      a0-init:
+        condition: service_completed_successfully
+      agent-zero:
+        condition: service_completed_successfully
+    ports:
+      - "81:80"    # WebUI  (+1 rule; standard 80)
+      - "23:22"    # SSH    (+1 rule; standard 22)
+    environment:
+      # data-layer wiring for the writer plugin (standard internal ports)
       DATA_LAYER_POSTGRES_DSN: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-postgres}
       DATA_LAYER_AGENT_ZERO_DSN: postgresql://agent_zero:${DATA_LAYER_AGENT_ZERO_PASSWORD:?DATA_LAYER_AGENT_ZERO_PASSWORD is required}@postgres:5432/postgres
       DATA_LAYER_REDIS_URL: redis://redis:6379/0
@@ -271,7 +325,19 @@ services:
       DATA_LAYER_REDIS_PORT: "6379"
       DATA_LAYER_FALKORDB_HOST: falkordb
       DATA_LAYER_FALKORDB_PORT: "6379"
-      DATA_LAYER_FALKORDB_DATABASE: ${DATA_LAYER_FALKORDB_DATABASE:-default}
+      DATA_LAYER_QDRANT_URL: http://qdrant:6333
+      DATA_LAYER_DW_SESSION_PRESENCE: "${DATA_LAYER_DW_SESSION_PRESENCE:-true}"
+      DATA_LAYER_DW_TOOL_EXECUTION: "${DATA_LAYER_DW_TOOL_EXECUTION:-true}"
+    volumes:
+      - a0_usr:/a0/usr
+      - a0_venv:/opt/venv-a0
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
     networks:
       - data_layer
 
@@ -280,6 +346,8 @@ volumes:
   redis_data:
   falkordb_data:
   qdrant_storage:
+  a0_venv:      # /opt/venv-a0 — populated from the A0 image by a0-init
+  a0_usr:       # /a0/usr — A0 state: plugins, settings, chats, memory
 
 networks:
   data_layer:
